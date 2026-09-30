@@ -154,6 +154,7 @@ These were confirmed against the live gateway on **2026-09-30**. The gateway is 
 | Fast passthrough | management-side `allow_service_tier`, value not public | compare the tier echoed in responses with and without the field |
 | Console sign-in | `POST {origin}/api/user/login` `{username,password}` | a wrong pair answers HTTP 200 `{success:false,message}`; `data.require_2fa` routes to `/api/user/login/2fa` |
 | Console token read | `GET {origin}/api/user/self/access-token`, then `{origin}/api/user/self` | both answer `200 {success:false}` without the session cookie; `/api/user/token` issues a token and rotates an existing one |
+| Reasoning levels `xhigh` / `max` | accepted on the chat route for the GPT line | `POST /v1/chat/completions` with `reasoning_effort: xhigh|max` answers 200 (verified 2026-09-30); the picker offers them identity-mapped |
 | Turnstile and OAuth | all off | `GET /api/status` → `turnstile_check`, `github_oauth`, `wechat_login`, `linuxdo_oauth`, `telegram_oauth`, `oidc_enabled` |
 
 **This plugin targets the `0.1.7-rc.2` and `0.2.0-rc.2` lines, which are identical in every seam it touches.** `packages/llm/llm/src`, `packages/settings/settings/src`, and the `sidebar.footer.action` contract have no diff between the two release tags, so the peer range covers both. Re-check that diff before widening the range further: the composition patch (`packages/bundle/web-app/cordis.patch.yml`) does change between lines, and a plugin row is composed through exactly that file.

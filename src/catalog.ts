@@ -55,8 +55,21 @@ export interface NowCodingCatalogModel {
   description?: string
 }
 
-/** Reasoning levels the OpenAI GPT line accepts, in escalating order. */
-const GPT_REASONING: NowCodingReasoningEfforts = { minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' }
+/** Reasoning levels the OpenAI GPT line accepts, in escalating order.
+ *
+ * `xhigh` and `max` mirror the gateway's Codex configuration, which serves
+ * them identity-mapped beside `high`; a level the picker offers but the wire
+ * rejects would fail the request, so the set matches what the gateway's own
+ * Codex clients send.
+ */
+const GPT_REASONING: NowCodingReasoningEfforts = {
+  minimal: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh',
+  max: 'max',
+}
 
 /** Suffix marking the fast-mode alias of a fast-capable model id. */
 export const FAST_MODEL_SUFFIX = '-fast'
