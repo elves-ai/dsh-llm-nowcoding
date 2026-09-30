@@ -56,7 +56,7 @@ pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 在末尾加 `#<ref>` 可以固定到某个 tag 或 commit，profile 需要可复现时建议这样写：
 
 ```sh
-dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.2
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.3
 ```
 
 `dsh plugin` 会在 profile 目录里转发给 pnpm，并把本包自动追加到 profile 的 bundle 列表。bundle 补丁挂载 `llm-nowcoding` 这一行并带上 `apiKeyEnv: NOWCODING_API_KEY`，所以还没做任何配置时环境变量也能用。

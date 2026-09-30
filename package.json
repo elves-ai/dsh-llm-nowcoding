@@ -1,6 +1,6 @@
 {
   "name": "@elves-ai/dsh-llm-nowcoding",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Unofficial DeepSeek Harness LLM provider plugin for the NowCoding gateway (nowcoding.ai): registers the `nowcoding` route with a built-in model catalog, the GPT fast tier, reasoning levels, a remaining-quota reader, and a sidebar balance card.",
   "keywords": [
     "deepseek-harness",

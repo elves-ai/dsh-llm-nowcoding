@@ -56,7 +56,7 @@ pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 Append `#<ref>` to pin a tag or a commit, which is what a reproducible profile wants:
 
 ```sh
-dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.2
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.3
 ```
 
 `dsh plugin` forwards to pnpm inside the profile directory and appends the package to the profile's bundle list automatically. The bundle patch mounts the `llm-nowcoding` row with `apiKeyEnv: NOWCODING_API_KEY`, so an environment variable works before anything is configured.
