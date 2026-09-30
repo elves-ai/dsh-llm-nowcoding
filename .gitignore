@@ -1,5 +1,7 @@
+# Dependencies and build residue. `lib/` is deliberately NOT ignored: the
+# plugin is distributed through git, and a git install cannot run a build (pnpm
+# blocks dependency build scripts), so the repository ships the built bundles.
 node_modules/
-lib/
 coverage/
 *.log
 .DS_Store
