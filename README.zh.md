@@ -40,14 +40,22 @@
 
 ## 安装
 
+插件直接从仓库安装：
+
 ```sh
-dsh plugin --profile web add @elves-ai/dsh-llm-nowcoding@latest
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 ```
 
 如果 dsh 是从 `deepseek-harness` 源码仓库里跑的（那里的 `dsh` 是 workspace 脚本而非全局命令），在仓库根目录加 `pnpm` 前缀：
 
 ```sh
-pnpm dsh plugin --profile web add @elves-ai/dsh-llm-nowcoding@latest
+pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
+```
+
+在末尾加 `#<ref>` 可以固定到某个 tag 或 commit，profile 需要可复现时建议这样写：
+
+```sh
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.0
 ```
 
 `dsh plugin` 会在 profile 目录里转发给 pnpm，并把本包自动追加到 profile 的 bundle 列表。bundle 补丁挂载 `llm-nowcoding` 这一行并带上 `apiKeyEnv: NOWCODING_API_KEY`，所以还没做任何配置时环境变量也能用。
@@ -58,7 +66,7 @@ pnpm dsh plugin --profile web add @elves-ai/dsh-llm-nowcoding@latest
 dsh web
 ```
 
-**pnpm 11 会拦新发布的版本。** 它的 `minimumReleaseAge` 默认 1440 分钟，发布不到一天的版本会被跳过，`@latest` 会静默解析到上一个版本。要装新版本请写明确切版本号。
+**仓库直接携带构建产物，所以安装只做文件复制，不执行任何脚本。** `lib/` 是有意入库的：pnpm 11 默认拒绝执行 git 依赖的构建脚本，除非每个使用方都把那个带 commit 号的 tarball URL 加进 allowlist —— 也就是说 `prepare` 会让安装直接失败而不是降级。代价是 `src/` 一改就必须重新构建并一起提交，这条约束记在 [AGENTS.md](AGENTS.md)。
 
 ## 配置
 
@@ -154,7 +162,14 @@ GET {baseURL}/dashboard/billing/usage          ->  { total_usage, ... }
 ## 更新
 
 ```sh
-dsh plugin --profile web update @elves-ai/dsh-llm-nowcoding@latest
+dsh plugin --profile web update @elves-ai/dsh-llm-nowcoding
+```
+
+git 方式安装会锁定到添加时的那个 commit，所以更新就是重新解析默认分支。如果 lockfile 没有变化，就改成先移除再添加 —— 那一定会重新解析：
+
+```sh
+dsh plugin --profile web remove @elves-ai/dsh-llm-nowcoding
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 ```
 
 之后重启 `dsh web` 并强制刷新。如果装在别的 profile，把 `web` 换成对应名字。

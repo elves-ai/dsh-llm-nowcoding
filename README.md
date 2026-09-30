@@ -40,14 +40,22 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 
 ## Install
 
+The plugin installs straight from its repository:
+
 ```sh
-dsh plugin --profile web add @elves-ai/dsh-llm-nowcoding@latest
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 ```
 
 Running dsh from a `deepseek-harness` source checkout, where `dsh` is a workspace script rather than a global binary, prefix it with `pnpm` from the workspace root:
 
 ```sh
-pnpm dsh plugin --profile web add @elves-ai/dsh-llm-nowcoding@latest
+pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
+```
+
+Append `#<ref>` to pin a tag or a commit, which is what a reproducible profile wants:
+
+```sh
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.0
 ```
 
 `dsh plugin` forwards to pnpm inside the profile directory and appends the package to the profile's bundle list automatically. The bundle patch mounts the `llm-nowcoding` row with `apiKeyEnv: NOWCODING_API_KEY`, so an environment variable works before anything is configured.
@@ -58,7 +66,7 @@ Then restart `dsh web` and hard-refresh the page (Cmd/Ctrl+Shift+R) so the brows
 dsh web
 ```
 
-**pnpm 11 holds back fresh releases.** Its `minimumReleaseAge` defaults to 1440 minutes, so a version published less than a day ago is skipped and `@latest` silently resolves to the previous one. Name the exact version to install it.
+**The repository ships its built bundles, so installation copies files and runs nothing.** `lib/` is committed on purpose: pnpm 11 refuses to run a git dependency's build scripts unless every consumer allowlists the exact tarball URL (the key embeds the commit), which would make `prepare` fail the install outright rather than fall back. The cost is that `lib/` must be rebuilt and committed whenever `src/` changes — [AGENTS.md](AGENTS.md) carries that rule.
 
 ## Configure
 
@@ -154,7 +162,14 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 ## Update
 
 ```sh
-dsh plugin --profile web update @elves-ai/dsh-llm-nowcoding@latest
+dsh plugin --profile web update @elves-ai/dsh-llm-nowcoding
+```
+
+A git install resolves to the commit that was current when it was added, so an update re-resolves the default branch. If the lockfile does not move, remove and re-add instead — that always re-resolves:
+
+```sh
+dsh plugin --profile web remove @elves-ai/dsh-llm-nowcoding
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 ```
 
 Restart `dsh web` afterwards, then hard-refresh. Replace `web` with another profile name if you installed elsewhere.

@@ -43,6 +43,15 @@ pnpm run build                           # tsc declarations to lib/types, then t
 
 There is no lint or coverage gate in this repository. `pnpm run typecheck && pnpm test && pnpm run build` is the full local check, and `build` is what catches client-bundle mistakes the unit suite cannot see.
 
+### Distribution: `lib/` is committed on purpose
+
+The plugin is installed from its repository (`dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding`), and a git install runs no build. pnpm 11 refuses a git dependency's build scripts unless every consumer allowlists the exact tarball URL — the allowlist key embeds the commit — so a `prepare` script does not degrade, it fails the install outright with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`. The repository therefore ships the bundles.
+
+Two consequences that are easy to get wrong:
+
+- **Rebuild and commit `lib/` in the same change as any `src/` edit.** Users run the bundle, not the source. `pnpm run build` refreshes it, and a `src/` change without a rebuilt `lib/` ships the old behaviour.
+- **Never add `prepare` back.** It is the conventional answer for git-distributed packages and it breaks the documented install here. `prepack` covers the publish path instead.
+
 -----
 
 ## Contracts that must not drift
@@ -136,6 +145,7 @@ These were confirmed against the live gateway on **2026-09-30**. The gateway is 
 | `serialize.ts`, `translate.ts`, `sse.ts`, `adapter.ts` | `pnpm test` against a recorded SSE transcript; `pnpm run typecheck` |
 | `settings-routes.ts` | `pnpm run typecheck`; assert dispatch behaviour through a unit spec if you add one |
 | `src/client/**` or `tsdown.config.ts` | `pnpm run build` — the purity gate and the client bundle are only exercised there |
+| Anything under `src/` | `pnpm run build`, then commit the refreshed `lib/` with the source change |
 | Anything user-visible | Update `README.md` and `README.zh.md` in the same change |
 
 Unit specs must not touch the network. A live check is `tests/*.e2e.ts`, it self-skips without `NOWCODING_API_KEY`, and it is never the only evidence for a behavioural claim.
