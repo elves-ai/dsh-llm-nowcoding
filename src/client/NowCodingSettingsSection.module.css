@@ -1,0 +1,208 @@
+/* DRAFT: styles for the optional NowCoding settings page. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.intro {
+  margin: 0;
+  color: var(--dsw-text-secondary, #9a9aa8);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-3);
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 16px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--dsw-line-secondary, #2a2a35);
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dsw-text-primary, #f2f2f5);
+}
+
+.desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-text-secondary, #9a9aa8);
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 260px;
+  justify-content: flex-end;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, rgba(0, 0, 0, 0.18));
+  color: var(--dsw-text-primary, #f2f2f5);
+  font-size: 13px;
+}
+
+.input:disabled {
+  opacity: 0.6;
+}
+
+.button,
+.buttonPrimary,
+.iconButton {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-text-primary, #f2f2f5);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.buttonPrimary {
+  border-color: transparent;
+  background: var(--dsw-brand, #4f7cff);
+  color: #ffffff;
+}
+
+.button:disabled,
+.buttonPrimary:disabled,
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--dsw-brand, #4f7cff);
+}
+
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.segment {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-text-secondary, #9a9aa8);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.segmentActive {
+  border-color: transparent;
+  background: var(--dsw-brand, #4f7cff);
+  color: #ffffff;
+}
+
+.badgeOn,
+.badgeOff {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: 999px;
+}
+
+.badgeOn {
+  color: #6fe3b2;
+  background: rgba(111, 227, 178, 0.12);
+}
+
+.badgeOff {
+  color: #9a9aa8;
+  background: rgba(154, 154, 168, 0.12);
+}
+
+.quotaBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.quotaGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  align-items: baseline;
+}
+
+.quotaLabel {
+  font-size: 12px;
+  color: var(--dsw-text-secondary, #9a9aa8);
+}
+
+.quotaValue {
+  font-size: 13px;
+  color: var(--dsw-text-primary, #f2f2f5);
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  margin: 0;
+  color: #f2a1a1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notice {
+  margin: 0;
+  color: #6fe3b2;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.hint {
+  margin: 0;
+  color: var(--dsw-text-secondary, #9a9aa8);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

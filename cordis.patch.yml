@@ -1,0 +1,20 @@
+# dsh-llm-nowcoding bundle layer.
+#
+# One plugin row: registers the `nowcoding` provider route on `ctx.llm`, its
+# built-in model catalog, the GPT `fast` request mode, and the quota client.
+# Every field is optional — schema defaults apply.
+#
+# `name` must be the FULL package specifier as installed in the profile's
+# node_modules: the loader imports it as a module and pnpm links packages by
+# their true (scoped) name, so a bare `dsh-llm-nowcoding` here fails to
+# resolve (ERR_MODULE_NOT_FOUND) and crashes the app on boot. Quote the value:
+# a YAML scalar starting with `@` is parsed as a directive and fails to parse.
+#
+# The API key is resolved per request through the credential seam from
+# `apiKeyEnv`, so no secret ever enters this file. `$NOWCODING_API_KEY` is the
+# documented default; point it at another variable for a second account.
+- insert:
+    - id: llm-nowcoding
+      name: "@elves-ai/dsh-llm-nowcoding"
+      config:
+        apiKeyEnv: NOWCODING_API_KEY

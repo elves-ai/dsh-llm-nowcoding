@@ -1,0 +1,114 @@
+{
+  "name": "@elves-ai/dsh-llm-nowcoding",
+  "version": "0.1.0",
+  "description": "Unofficial DeepSeek Harness LLM provider plugin for the NowCoding gateway (nowcoding.ai): registers the `nowcoding` route with a built-in model catalog, the GPT fast tier, reasoning levels, a remaining-quota reader, and a sidebar balance card.",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "nowcoding",
+    "llm",
+    "provider",
+    "adapter",
+    "cordis",
+    "codex",
+    "claude-code"
+  ],
+  "homepage": "https://github.com/elves-ai/dsh-llm-nowcoding#readme",
+  "bugs": {
+    "url": "https://github.com/elves-ai/dsh-llm-nowcoding/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elves-ai/dsh-llm-nowcoding.git"
+  },
+  "license": "MIT",
+  "author": "yangzhe1003",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.1.7-rc.2": "compatible",
+        "0.2.0-rc.2": "compatible"
+      },
+      "dsh": "^0.1.7-rc.2 || ^0.2.0-rc.2"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "rm -rf lib && npm run build:types && tsdown",
+    "build:types": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "bundle": "tsdown",
+    "watch": "tsdown --watch",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-launch-environment": "^0.1.7-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.1.7-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.7-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/cosmokit": "^1.8.5"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "^0.1.7-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.7-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-launch-environment": "^0.1.7-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.1.7-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.7-rc.2 || ^0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@types/node": "^22.0.0",
+    "@types/react": "~18.3.1",
+    "lightningcss": "^1.32.0",
+    "react": "^18.2.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.0",
+    "@deepseek-ai/cosmokit": "^1.8.5"
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": "^0.1.7-rc.2 || ^0.2.0-rc.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "packageManager": "pnpm@11.7.0+sha512.19cc852c120c7125760f2443ee6be0ca5b40f9f50598de1a09a1f177503e010e57c23c77646e01e761de59bf874fb22a3398c33ab9691fc13eb946b6f0f4d620"
+}
