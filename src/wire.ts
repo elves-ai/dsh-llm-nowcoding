@@ -42,9 +42,7 @@ export interface WireTextPart {
 }
 
 /**
- * One image part. The adapter never builds this: no request-version bytes reach
- * the adapter (see `serialize.ts`), so an image-capable model is served text
- * for image occurrences and a vision-capable request is refused.
+ * One user-image part containing inline, host-verified request-version bytes.
  */
 export interface WireImagePart {
   type: 'image_url'

@@ -55,20 +55,31 @@ export interface NowCodingCatalogModel {
   description?: string
 }
 
-/** Reasoning levels the OpenAI GPT line accepts, in escalating order.
- *
- * `xhigh` and `max` mirror the gateway's Codex configuration, which serves
- * them identity-mapped beside `high`; a level the picker offers but the wire
- * rejects would fail the request, so the set matches what the gateway's own
- * Codex clients send.
- */
+/** Official GPT-6 Astra / GPT-6.1 Sol reasoning levels. */
 const GPT_REASONING: NowCodingReasoningEfforts = {
-  minimal: 'minimal',
   low: 'low',
   medium: 'medium',
   high: 'high',
   xhigh: 'xhigh',
   max: 'max',
+}
+
+/** GPT-6 Sol and GPT-5.6 also support non-reasoning requests. */
+const GPT_OPTIONAL_REASONING: NowCodingReasoningEfforts = { none: 'none', ...GPT_REASONING }
+
+/** GPT-5.4 / GPT-5.5 do not offer `minimal` or `max`. */
+const GPT_PREVIOUS_REASONING: NowCodingReasoningEfforts = {
+  none: 'none', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh',
+}
+
+/** GPT-5.3 Codex requires reasoning and does not offer `max`. */
+const CODEX_REASONING: NowCodingReasoningEfforts = {
+  low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh',
+}
+
+/** Gateway levels retained for aliases/preview ids whose official effort table is unpublished. */
+const GATEWAY_REASONING: NowCodingReasoningEfforts = {
+  minimal: 'minimal', low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
 }
 
 /** Suffix marking the fast-mode alias of a fast-capable model id. */
@@ -78,13 +89,15 @@ export const FAST_MODEL_SUFFIX = '-fast'
  * The shipped catalog, snapshotted from the gateway's published pricing on
  * 2026-09-30. Keep ids version-exact and lowercase: a near miss surfaces as a
  * provider error on the first request rather than as a corrected model.
+ * GPT capacities/modalities follow https://developers.openai.com/api/docs/models
+ * (one official page per exact id); gateway-only aliases remain explicitly unverified.
  */
 export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
   {
     id: 'gpt-6-astra',
     name: 'GPT-6 Astra',
     description: 'OpenAI flagship; fast mode available',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
     reasoningEfforts: GPT_REASONING,
@@ -95,10 +108,10 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     id: 'gpt-6-sol',
     name: 'GPT-6 Sol',
     description: 'OpenAI mainline; fast mode available',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
+    reasoningEfforts: GPT_OPTIONAL_REASONING,
     defaultReasoningEffort: 'medium',
     fast: true,
   },
@@ -106,7 +119,7 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     id: 'gpt-6.1-sol',
     name: 'GPT-6.1 Sol',
     description: 'OpenAI mainline; fast mode available',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
     reasoningEfforts: GPT_REASONING,
@@ -117,10 +130,10 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     id: 'gpt-5.6-sol',
     name: 'GPT-5.6 Sol',
     description: 'OpenAI mainline; fast mode available',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
+    reasoningEfforts: GPT_OPTIONAL_REASONING,
     defaultReasoningEffort: 'medium',
     fast: true,
   },
@@ -128,10 +141,10 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     id: 'gpt-5.6-terra',
     name: 'GPT-5.6 Terra',
     description: 'OpenAI budget tier; fast mode available',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
+    reasoningEfforts: GPT_OPTIONAL_REASONING,
     defaultReasoningEffort: 'medium',
     fast: true,
   },
@@ -139,10 +152,10 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     id: 'gpt-5.6-luna',
     name: 'GPT-5.6 Luna',
     description: 'Gateway redirects requests to gpt-5.6-terra and bills at the terra rate',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
+    reasoningEfforts: GPT_OPTIONAL_REASONING,
     defaultReasoningEffort: 'medium',
     fast: true,
   },
@@ -150,10 +163,10 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     id: 'gpt-5.5',
     name: 'GPT-5.5',
     description: 'Previous flagship; fast mode available',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
+    reasoningEfforts: GPT_PREVIOUS_REASONING,
     defaultReasoningEffort: 'medium',
     fast: true,
   },
@@ -161,11 +174,11 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     id: 'gpt-5.4',
     name: 'GPT-5.4',
     description: 'Previous mainline; fast mode available',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
-    defaultReasoningEffort: 'medium',
+    reasoningEfforts: GPT_PREVIOUS_REASONING,
+    defaultReasoningEffort: 'none',
     fast: true,
   },
   {
@@ -173,20 +186,20 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     name: 'GPT-5.4 mini',
     description: 'Low-cost OpenAI tier',
     contextWindow: 400_000,
-    maxTokens: 64_000,
+    maxTokens: 128_000,
     input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
-    defaultReasoningEffort: 'low',
+    reasoningEfforts: GPT_PREVIOUS_REASONING,
+    defaultReasoningEffort: 'none',
     fast: true,
   },
   {
     id: 'gpt-5.4-openai-compact',
     name: 'GPT-5.4 Compact',
-    description: 'Compact-context variant used by the Codex endpoint',
+    description: 'Gateway-only alias; context and vision capability unverified, configurable via modelOverrides',
     contextWindow: 128_000,
     maxTokens: 64_000,
     input: ['text'],
-    reasoningEfforts: GPT_REASONING,
+    reasoningEfforts: GATEWAY_REASONING,
     defaultReasoningEffort: 'medium',
   },
   {
@@ -196,27 +209,27 @@ export const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[] = [
     contextWindow: 400_000,
     maxTokens: 128_000,
     input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
+    reasoningEfforts: CODEX_REASONING,
     defaultReasoningEffort: 'medium',
   },
   {
     id: 'gpt-5.3-codex-spark',
     name: 'GPT-5.3 Codex Spark',
-    description: 'Low-latency agentic coding model',
-    contextWindow: 400_000,
-    maxTokens: 128_000,
-    input: ['text', 'image'],
-    reasoningEfforts: GPT_REASONING,
+    description: 'Text-only Codex research preview; 128K context, configurable output cap',
+    contextWindow: 128_000,
+    maxTokens: 64_000,
+    input: ['text'],
+    reasoningEfforts: GATEWAY_REASONING,
     defaultReasoningEffort: 'medium',
   },
   {
     id: 'codex-auto-review',
     name: 'Codex Auto Review',
-    description: 'Gateway-hosted automated review model',
+    description: 'Gateway-hosted review alias; upstream model and capabilities unverified',
     contextWindow: 400_000,
     maxTokens: 64_000,
     input: ['text'],
-    reasoningEfforts: GPT_REASONING,
+    reasoningEfforts: GATEWAY_REASONING,
     defaultReasoningEffort: 'medium',
   },
   {

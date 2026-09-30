@@ -27,6 +27,7 @@ import { LlmAdapter, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk,
 } from '@deepseek-ai/dsh-llm'
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { NowCodingResolvedOptions } from './config.ts'
 import { listSelectableModels, resolveModelInfo } from './models.ts'
 import { serialize } from './serialize.ts'
@@ -43,12 +44,15 @@ export interface NowCodingAdapterOptions {
   options: () => NowCodingResolvedOptions
   /** Transport override for tests and for deployments that bring their own. */
   fetchImpl?: typeof fetch
+  /** Current host-owned attachment store, resolved at the start of each request. */
+  attachments?: () => Pick<AttachmentStore, 'readImageRequest'> | undefined
 }
 
 /** NowCoding gateway adapter, speaking OpenAI Chat Completions over SSE. */
 export class NowCodingAdapter extends LlmAdapter {
   private readonly settings: () => NowCodingResolvedOptions
   private readonly fetchImpl: typeof fetch | undefined
+  private readonly attachments: (() => Pick<AttachmentStore, 'readImageRequest'> | undefined) | undefined
 
   /**
    * @param options - either the current-configuration reader, or that reader
@@ -64,9 +68,11 @@ export class NowCodingAdapter extends LlmAdapter {
     if (typeof input === 'function') {
       this.settings = input
       this.fetchImpl = undefined
+      this.attachments = undefined
     } else {
       this.settings = input.options
       this.fetchImpl = input.fetchImpl
+      this.attachments = input.attachments
     }
   }
 
@@ -125,10 +131,11 @@ export class NowCodingAdapter extends LlmAdapter {
     let dispose: (() => void) | undefined
     try {
       signal.throwIfAborted()
-      const body = serialize(options, {
+      const body = await serialize({ ...options, signal }, {
         catalog: settings.catalog,
         fast: settings.fast,
         fastServiceTier: settings.fastServiceTier,
+        attachments: this.attachments?.(),
       })
       const response = await postChatCompletion({
         baseURL: settings.baseURL,

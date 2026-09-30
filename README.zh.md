@@ -56,7 +56,7 @@ pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 在末尾加 `#<ref>` 可以固定到某个 tag 或 commit，profile 需要可复现时建议这样写：
 
 ```sh
-dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.3
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.4
 ```
 
 `dsh plugin` 会在 profile 目录里转发给 pnpm，并把本包自动追加到 profile 的 bundle 列表。bundle 补丁挂载 `llm-nowcoding` 这一行并带上 `apiKeyEnv: NOWCODING_API_KEY`，所以还没做任何配置时环境变量也能用。
@@ -122,6 +122,23 @@ dsh web
 **在详情页勾选要保留的模型。** 模型卡片的 **拉取模型列表** 按钮让 Host 用当前 Key 请求 `GET {base}/v1/models` —— 这是按 Key 分组返回的列表，里面的每个 id 都是这把 Key 真正能调用的 —— 并渲染成可搜索的勾选清单。勾选即写入草稿，保存后模型选择器在下次打开时生效。卡片还会直接显示「对话时的模型选择器当前会列出哪些模型」，选择器里缺哪个模型，在页面上就能对出来。三个如实的提示：插件目录不认识的 id 会标注 **目录外**（可以保存，但目录收录它之前选择器无法显示它）；列表拉取过一次后，已勾选但列表里不再出现的 id 会给出 **清理失效** 按钮；**显示全部** 一键清空白名单。白名单只收窄选择器 —— 保留但目录外的 id 被精确请求时照常解析，快速别名在其基础模型被保留时仍然列出。
 
 模型 id 会原样发到网关：写错 id 会在第一次请求时报提供商错误，而不是被静默替换成别的模型。网关自己的公开型号表在 `GET https://nowcoding.ai/api/pricing`，无需凭据，是确认某个 id 是否还存在的最快办法。
+
+### GPT 官方规格与图片输入
+
+模型是否可用以 NowCoding 为准；GPT 的上下文窗口、输出上限和输入模态以 [OpenAI 官方模型目录](https://developers.openai.com/api/docs/models) 为准，不再统一套用兜底数值。`-fast` 选择器别名继承基础模型的相同声明。
+
+| 模型 | 上下文窗口（tokens） | 最大输出（tokens） | 输入 |
+|---|---:|---:|---|
+| [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)、[GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol)、[GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) | 1,050,000 | 128,000 | 文本、图片 |
+| [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)、[Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)、[Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)、[GPT-5.5](https://developers.openai.com/api/docs/models/gpt-5.5)、[GPT-5.4](https://developers.openai.com/api/docs/models/gpt-5.4) | 1,050,000 | 128,000 | 文本、图片 |
+| [GPT-5.4 mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini)、[GPT-5.3 Codex](https://developers.openai.com/api/docs/models/gpt-5.3-codex) | 400,000 | 128,000 | 文本、图片 |
+| [GPT-5.3 Codex Spark](https://openai.com/index/introducing-gpt-5-3-codex-spark/) 研究预览 | 128,000 | 官方未公布；插件默认 64,000 | 仅文本 |
+
+支持图片的模型会通过宿主附件服务生成并校验请求版本，再将用户上传的图片作为 `image_url` 内联 data URL 发送；保留文本与图片顺序，同一图片的重复出现也会保留。已卸载的图片发送 Harness 占位说明，不重新上传；附件缺失会明确报错，不会静默丢弃图片；纯文本模型不会被错误标注成支持识图。图片请求需要宿主提供 `ctx.attachments` 服务，无附件服务的 headless 部署仍可进行文本对话。
+
+推理档位按型号声明：GPT-6 Astra 与 GPT-6.1 Sol 提供 `low / medium / high / xhigh / max`；GPT-6 Sol 与 GPT-5.6 另有 `none`；GPT-5.4 与 GPT-5.5 提供 `none / low / medium / high / xhigh`；GPT-5.3 Codex 提供 `low / medium / high / xhigh`。上述有官方档位表的型号不声明 `minimal`；Spark 与网关专用别名因缺少官方档位表而保留网关档位；profile 中显式设置的覆盖值仍优先。
+
+`gpt-5.4-openai-compact` 与 `codex-auto-review` 是网关专用别名，目前没有经过核实的官方上游映射，保留可由 `modelOverrides` 改写的保守窗口与纯文本声明，不能把它们当作 OpenAI 官方规格。若某个渠道实际限制比上游小，应覆盖对应型号，不应把所有 GPT 的窗口一起调小。
 
 ## 快速模式
 
@@ -199,6 +216,7 @@ GET {baseURL}/dashboard/billing/usage          ->  { total_usage, ... }
 3. **余额能读到。** 侧栏卡片与详情页都显示剩余额度。若显示错误，错误码会说明是 Key 被拒（`unauthorized`）还是网关不可达（`unreachable`）。
 4. **快速模式在请求里可见。** 选中 `-fast` 入口时，请求体会带 `service_tier`；看响应回显的档位就能知道该渠道是否透传。
 5. **登录能填好控制台凭据。** 详情页的登录区填入账号与密码后，面板用户 ID 与登录会话被写入，账号已有令牌时也会读回，余额切换到套餐额度。密码错误会给出对应提示；站方开启 Turnstile 时会明确说明。
+6. **图片确实发给模型。** 选择支持图片的 GPT，上传图片并询问内容；请求应携带内联图片部分，而不是拒绝附件。
 
 ## 更新
 
@@ -257,6 +275,8 @@ pnpm run build            # tsc 产出 lib/types，再由 tsdown 打包
 
 ## 已知限制
 
+- **图片输入仅支持用户消息。** 宿主必须挂载附件服务；该 Chat Completions 适配器会拒绝 assistant／tool／system 消息里的图片，已卸载图片保留文本占位。官方支持识图不代表每个网关渠道都会透传图片。
+- **上游官方协议限制仍适用。** GPT-6.1 Sol 官方要求用 Responses 进行工具调用；GPT-6 Sol 在 Chat Completions 上仅允许 `reasoning_effort: none` 时的函数调用。网关可能转换协议，但插件本身不做转换。
 - **只实现 OpenAI 兼容的对话补全。** 网关还提供 `/v1/responses` 与 Anthropic 的 `/v1/messages`。网关自己的健康检查显示 Codex 分组跑在 Responses API 上，尽管其价格元数据只标了 `openai`，因此仅支持 Codex 的分组可能需要先补上该协议；适配器 seam 支持把第二种协议加进来。
 - **目录是快照。** 它的日期写在 `src/catalog.ts` 里，靠配置而非发版来修正；适配器没有任何地方假定它是当前的。
 - **快速模式无法从外部证实。** 某个渠道是否透传 `service_tier` 属于管理端配置；插件只能发送该字段并报告回显的档位。

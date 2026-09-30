@@ -56,7 +56,7 @@ pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 Append `#<ref>` to pin a tag or a commit, which is what a reproducible profile wants:
 
 ```sh
-dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.3
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.4
 ```
 
 `dsh plugin` forwards to pnpm inside the profile directory and appends the package to the profile's bundle list automatically. The bundle patch mounts the `llm-nowcoding` row with `apiKeyEnv: NOWCODING_API_KEY`, so an environment variable works before anything is configured.
@@ -122,6 +122,23 @@ A model list is a moving target on a relay, so the catalog is a starting point r
 **Picking the kept models on the detail page.** The model card's **fetch** button asks the Host to read `GET {base}/v1/models` with the configured key — the key-scoped listing, so every id it returns is one the key can actually serve — and renders it as a searchable checklist. Checking rows drafts the allowlist; saving commits it, and the picker takes it on its next open. The card also prints the exact list the conversation picker serves right now, so a model missing from the app's menu is diagnosable from the page alone. Three honest signals ride along: an id the served catalog does not know is marked 目录外 (kept, but the picker cannot describe it until the catalog learns it); once a listing is loaded, drafted ids the listing no longer carries get a one-click **clean stale**; and **show all** clears the allowlist. The allowlist narrows the picker only — a kept-but-unknown id resolves fine when requested exactly, and fast aliases stay listed while their base model is kept.
 
 Model ids reach the gateway verbatim: a near miss surfaces as a provider error on the first request rather than as a silently substituted model. The gateway's own public lineup is at `GET https://nowcoding.ai/api/pricing`, which needs no credential and is the fastest way to check whether an id still exists.
+
+### Official GPT capacities and image input
+
+Model availability comes from NowCoding; GPT context windows, output caps and input modalities come from the [OpenAI model catalog](https://developers.openai.com/api/docs/models), not a shared fallback. The same metadata is preserved by each `-fast` picker alias.
+
+| Models | Context window (tokens) | Maximum output (tokens) | Input |
+|---|---:|---:|---|
+| [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra), [GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol), [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) | 1,050,000 | 128,000 | Text and images |
+| [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol), [Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra), [Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna), [GPT-5.5](https://developers.openai.com/api/docs/models/gpt-5.5), [GPT-5.4](https://developers.openai.com/api/docs/models/gpt-5.4) | 1,050,000 | 128,000 | Text and images |
+| [GPT-5.4 mini](https://developers.openai.com/api/docs/models/gpt-5.4-mini), [GPT-5.3 Codex](https://developers.openai.com/api/docs/models/gpt-5.3-codex) | 400,000 | 128,000 | Text and images |
+| [GPT-5.3 Codex Spark](https://openai.com/index/introducing-gpt-5-3-codex-spark/) research preview | 128,000 | Not published; plugin default 64,000 | Text only |
+
+Image-capable models send uploaded user images as inline `image_url` data URLs after the host attachment store prepares and verifies the request version. Text/image order and repeated image occurrences are preserved. Offloaded images retain the Harness placeholder instead of being re-uploaded; missing attachments fail explicitly, and text-only models are not falsely advertised as vision-capable. This requires the host's `ctx.attachments` service; headless text calls need no attachment service.
+
+Reasoning choices are model-specific: GPT-6 Astra and GPT-6.1 Sol offer `low / medium / high / xhigh / max`; GPT-6 Sol and GPT-5.6 also offer `none`; GPT-5.4 and GPT-5.5 offer `none / low / medium / high / xhigh`; GPT-5.3 Codex offers `low / medium / high / xhigh`. `minimal` is not declared for these officially documented models. Spark and gateway-only aliases retain the gateway effort table because an official table is not published. Explicit profile overrides still win.
+
+`gpt-5.4-openai-compact` and `codex-auto-review` are gateway-only aliases with no verified official upstream mapping. Their existing conservative capacities and text-only declarations remain configurable via `modelOverrides`; they must not be presented as official OpenAI specifications. A channel can impose a smaller limit than the upstream model: override that exact model rather than shrinking every GPT entry.
 
 ## Fast mode
 
@@ -199,6 +216,7 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 3. **The balance reads.** The sidebar card and the detail page both show a remaining balance. If it shows an error, its code says whether the key was rejected (`unauthorized`) or the gateway could not be reached (`unreachable`).
 4. **Fast mode is visible in the request.** With the `-fast` entry selected, the request body carries `service_tier`; check the response's echoed tier to learn whether the channel forwards it.
 5. **Sign-in fills the console credential.** On the detail page, the sign-in block with the account name and password writes Panel user ID and the sign-in session, reads the access token when the account has one, and switches the balance to the plan's allowance. A refused password reports so in Chinese; a deployment with Turnstile on reports that instead.
+6. **Image input reaches the model.** Choose an image-capable GPT, upload an image and ask about its contents; the request carries an inline image part rather than rejecting the attachment.
 
 ## Update
 
@@ -257,6 +275,8 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 
 ## Known limitations
 
+- **Image input is user-message only.** The host attachment store must be mounted. Assistant/tool/system images are refused by this Chat Completions adapter; offloaded images remain text placeholders. Official vision support is not a guarantee that every gateway channel forwards images.
+- **Official tool-protocol restrictions still apply upstream.** GPT-6.1 Sol documents tool calling through Responses, and GPT-6 Sol documents Chat Completions function calling only with `reasoning_effort: none`; a gateway may translate protocols, but this plugin does not.
 - **OpenAI-compatible chat completions only.** The gateway also serves `/v1/responses` and Anthropic `/v1/messages`. Codex groups are reported by the gateway's health checks as running on the Responses API even though their pricing metadata lists only `openai`, so a Codex-only group may need that protocol before it works here; the adapter seam supports adding it as a second protocol.
 - **The catalog is a snapshot.** It is dated in `src/catalog.ts` and corrected by configuration rather than by a release; nothing in the adapter assumes the list is current.
 - **Fast mode cannot be verified from outside.** Whether a channel forwards `service_tier` is a management-side setting; the plugin can send the field and report the echoed tier, and nothing more.

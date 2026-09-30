@@ -5,12 +5,10 @@
  * contract names: tool `arguments` ride as the raw JSON string the model
  * produced, and tool results keep their `tool_call_id` correlation.
  *
- * Image occurrences are refused rather than approximated. The adapter receives
- * no attachment resolver, so it cannot read request-version bytes for
- * `image_url`; substituting placeholder text would silently drop content the
- * user attached, so a vision-capable request fails with `UNSUPPORTED_CONTENT`
- * and the route's catalog `input` declaration is what keeps image models out of
- * that state.
+ * User images resolve through the host attachment store into verified request
+ * versions and inline `image_url` parts. Offloaded images retain the Harness
+ * placeholder; a missing store or unsupported role fails rather than silently
+ * discarding the attachment.
  *
  * Reasoning is dropped from assistant history: no signature or response id
  * accompanies it on this route, so there is nothing to replay and no wire field
@@ -19,9 +17,10 @@
  * @module @elves-ai/dsh-llm-nowcoding/serialize
  */
 
-import { LlmError } from '@deepseek-ai/dsh-llm'
+import { LlmError, offloadedImageText, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+import type { AttachmentStore, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type {
-  ContentBlock, GenerateOptions, ReasoningEffortId, RequestMessage, ToolResultMessage,
+  ContentBlock, GenerateOptions, ImageBlock, ReasoningEffortId, RequestMessage, ToolResultMessage,
 } from '@deepseek-ai/dsh-llm'
 import { catalogEntry, wireModelId, type NowCodingCatalogModel } from './catalog.ts'
 import { decideFastTier } from './fast.ts'
@@ -42,6 +41,8 @@ export interface SerializeContext {
   fast: boolean
   /** Wire spelling sent when fast mode is on. */
   fastServiceTier: NowCodingFastServiceTier
+  /** Host-owned image projection; optional so text-only/headless calls still work. */
+  attachments?: Pick<AttachmentStore, 'readImageRequest'>
 }
 
 /** Refuse a request field or content block the wire cannot carry; never drop it silently. */
@@ -49,7 +50,53 @@ function unsupported(detail: string): never {
   throw new LlmError(`NowCoding chat completions cannot represent ${detail}`, 'UNSUPPORTED_CONTENT')
 }
 
-/** Render accumulated text parts, or the part list when an image survived this far. */
+/** Resolve retained user images once per attachment, without changing request history. */
+async function imagePartsOf(
+  options: GenerateOptions,
+  context: SerializeContext,
+): Promise<ReadonlyMap<ImageBlock, readonly WirePart[]>> {
+  const parts = new Map<ImageBlock, readonly WirePart[]>()
+  const versions = new Map<string, RequestImageAttachment>()
+  const entry = catalogEntry(context.catalog, options.model)
+  for (const message of options.messages) {
+    for (const block of message.content) {
+      if (block.type !== 'image') continue
+      options.signal?.throwIfAborted()
+      if (message.role !== 'user') unsupported('an image in a non-user message')
+      if (block.offloaded === true) {
+        parts.set(block, [{ type: 'text', text: offloadedImageText(block.attachment) }])
+        continue
+      }
+      if (entry !== undefined && !entry.input.includes('image')) {
+        unsupported('an image for a text-only model')
+      }
+      if (context.attachments === undefined) unsupported('an image without the host attachment store')
+      const ref = block.attachment
+      let version = versions.get(ref.attachmentId)
+      if (version === undefined) {
+        try {
+          version = await context.attachments.readImageRequest(ref, {
+            width: ref.width, height: ref.height, maxBytes: ref.bytes,
+          }, options.signal)
+        } catch (error) {
+          options.signal?.throwIfAborted()
+          throw new LlmError('NowCoding could not resolve an image attachment', 'ATTACHMENT', { cause: error })
+        }
+        options.signal?.throwIfAborted()
+        versions.set(ref.attachmentId, version)
+      }
+      parts.set(block, [
+        { type: 'text', text: requestImageHandleText(ref, version) },
+        { type: 'image_url', image_url: {
+          url: 'data:' + version.mediaType + ';base64,' + Buffer.from(version.data).toString('base64'),
+        } },
+      ])
+    }
+  }
+  return parts
+}
+
+/** Render accumulated text parts, or an ordered multimodal part list. */
 function bodyOf(parts: readonly WirePart[]): string | WirePart[] {
   return parts.every(part => part.type === 'text')
     ? parts.map(part => part.type === 'text' ? part.text : '').join('')
@@ -60,10 +107,11 @@ function bodyOf(parts: readonly WirePart[]): string | WirePart[] {
  * Project one message's content into a wire body.
  * @param content - durable or request-only content blocks.
  * @param role - the wire role the body belongs to, which decides what may appear.
+ * @param images - resolved user-image parts for this operation.
  * @returns the joined text, or an ordered part list when an image is present.
- * @throws {LlmError} code `UNSUPPORTED_CONTENT` for an image or an unknown block.
+ * @throws {LlmError} code `UNSUPPORTED_CONTENT` for an unresolved image or unknown block.
  */
-function contentOf(content: readonly ContentBlock[], role: WireRole): string | WirePart[] {
+function contentOf(content: readonly ContentBlock[], role: WireRole, images: ReadonlyMap<ImageBlock, readonly WirePart[]>): string | WirePart[] {
   const parts: WirePart[] = []
   for (const block of content) {
     switch (block.type) {
@@ -73,9 +121,12 @@ function contentOf(content: readonly ContentBlock[], role: WireRole): string | W
       case 'reasoning':
         // Reasoning from an earlier turn is not model-visible input on this route.
         break
-      case 'image':
-        unsupported(`an image occurrence in a ${role} message; this route sends text only`)
+      case 'image': {
+        const resolved = images.get(block)
+        if (role !== 'user' || resolved === undefined) unsupported(`an unresolved image in a ${role} message`)
+        parts.push(...resolved)
         break
+      }
       case 'file':
         // Request assembly replaces every file with handle text before dispatch.
         unsupported('a file block that request assembly did not project')
@@ -119,8 +170,8 @@ function assistantMessage(content: readonly ContentBlock[]): WireMessage {
 }
 
 /** Project one tool result into the `role: 'tool'` message that answers its call. */
-function toolMessage(message: ToolResultMessage): WireMessage {
-  const body = contentOf(message.content, 'tool')
+function toolMessage(message: ToolResultMessage, images: ReadonlyMap<ImageBlock, readonly WirePart[]>): WireMessage {
+  const body = contentOf(message.content, 'tool', images)
   if (typeof body !== 'string') unsupported('a tool result containing an image')
   return {
     role: 'tool',
@@ -132,18 +183,18 @@ function toolMessage(message: ToolResultMessage): WireMessage {
 }
 
 /** Project one non-assistant conversation turn. */
-function requestMessage(message: RequestMessage): WireMessage {
+function requestMessage(message: RequestMessage, images: ReadonlyMap<ImageBlock, readonly WirePart[]>): WireMessage {
   switch (message.role) {
     case 'system':
     case 'developer': {
-      const body = contentOf(message.content, 'system')
+      const body = contentOf(message.content, 'system', images)
       if (typeof body !== 'string') unsupported('a system message containing an image')
       return { role: 'system', content: body }
     }
     case 'user':
-      return { role: 'user', content: contentOf(message.content, 'user') }
+      return { role: 'user', content: contentOf(message.content, 'user', images) }
     case 'tool':
-      return toolMessage(message)
+      return toolMessage(message, images)
     case 'assistant':
       return assistantMessage(message.content)
     default:
@@ -152,12 +203,12 @@ function requestMessage(message: RequestMessage): WireMessage {
 }
 
 /** Project the conversation, with the one-shot `system` slot ahead of it. */
-function messagesOf(options: GenerateOptions): WireMessage[] {
+function messagesOf(options: GenerateOptions, images: ReadonlyMap<ImageBlock, readonly WirePart[]>): WireMessage[] {
   const messages: WireMessage[] = []
   if (options.system !== undefined && options.system.length > 0) {
     messages.push({ role: 'system', content: options.system })
   }
-  for (const message of options.messages) messages.push(requestMessage(message))
+  for (const message of options.messages) messages.push(requestMessage(message, images))
   return messages
 }
 
@@ -206,7 +257,7 @@ function reasoningEffort(effort: ReasoningEffortId, entry: NowCodingCatalogModel
  *   `UNSUPPORTED_REASONING_EFFORT` for an effort the exact model does not offer, and
  *   `UNSUPPORTED_OPTION` for a stop list longer than the wire accepts.
  */
-export function serialize(options: GenerateOptions, context: SerializeContext): WireRequest {
+export async function serialize(options: GenerateOptions, context: SerializeContext): Promise<WireRequest> {
   if (options.stop !== undefined && options.stop.length > MAX_STOP_SEQUENCES) {
     throw new LlmError(
       `NowCoding chat completions accepts at most ${MAX_STOP_SEQUENCES} stop sequences`,
@@ -224,10 +275,11 @@ export function serialize(options: GenerateOptions, context: SerializeContext): 
     ? undefined
     : reasoningEffort(options.reasoningEffort, entry)
   const tools = toolsOf(options)
+  const images = await imagePartsOf(options, context)
   return {
     // A '-fast' id selects a tier; it is never a model the gateway serves.
     model: wireModelId(options.model),
-    messages: messagesOf(options),
+    messages: messagesOf(options, images),
     stream: true,
     stream_options: { include_usage: true },
     ...tier.serviceTier === undefined ? {} : { service_tier: tier.serviceTier },

@@ -5,12 +5,10 @@
  * contract names: tool `arguments` ride as the raw JSON string the model
  * produced, and tool results keep their `tool_call_id` correlation.
  *
- * Image occurrences are refused rather than approximated. The adapter receives
- * no attachment resolver, so it cannot read request-version bytes for
- * `image_url`; substituting placeholder text would silently drop content the
- * user attached, so a vision-capable request fails with `UNSUPPORTED_CONTENT`
- * and the route's catalog `input` declaration is what keeps image models out of
- * that state.
+ * User images resolve through the host attachment store into verified request
+ * versions and inline `image_url` parts. Offloaded images retain the Harness
+ * placeholder; a missing store or unsupported role fails rather than silently
+ * discarding the attachment.
  *
  * Reasoning is dropped from assistant history: no signature or response id
  * accompanies it on this route, so there is nothing to replay and no wire field
@@ -18,6 +16,7 @@
  *
  * @module @elves-ai/dsh-llm-nowcoding/serialize
  */
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment';
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm';
 import { type NowCodingCatalogModel } from './catalog.ts';
 import type { NowCodingFastServiceTier } from './settings-shared.ts';
@@ -30,6 +29,8 @@ export interface SerializeContext {
     fast: boolean;
     /** Wire spelling sent when fast mode is on. */
     fastServiceTier: NowCodingFastServiceTier;
+    /** Host-owned image projection; optional so text-only/headless calls still work. */
+    attachments?: Pick<AttachmentStore, 'readImageRequest'>;
 }
 /**
  * Build one Chat Completions request body.
@@ -40,4 +41,4 @@ export interface SerializeContext {
  *   `UNSUPPORTED_REASONING_EFFORT` for an effort the exact model does not offer, and
  *   `UNSUPPORTED_OPTION` for a stop list longer than the wire accepts.
  */
-export declare function serialize(options: GenerateOptions, context: SerializeContext): WireRequest;
+export declare function serialize(options: GenerateOptions, context: SerializeContext): Promise<WireRequest>;

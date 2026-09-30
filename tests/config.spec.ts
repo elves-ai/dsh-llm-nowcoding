@@ -31,6 +31,7 @@ describe('effectiveCatalog', () => {
     const catalog = effectiveCatalog({ models: [{ id: 'gpt-5.6-sol', maxTokens: 4_096 }] })
     expect(catalog[0]?.maxTokens).toBe(4_096)
     expect(catalog[0]?.name).toBe('GPT-5.6 Sol')
+    expect(catalog[0]?.input).toEqual(['text', 'image'])
     expect(catalog[0]?.contextWindow).toBe(
       NOWCODING_BUILTIN_CATALOG.find(entry => entry.id === 'gpt-5.6-sol')?.contextWindow,
     )
@@ -42,6 +43,18 @@ describe('effectiveCatalog', () => {
     const entry = catalog.find(candidate => candidate.id === 'gpt-5.6-sol')
     expect(entry?.fast).toBe(false)
     expect(entry?.name).toBe('Renamed')
+  })
+
+  it('keeps explicit channel capacity and modality overrides above the official defaults', () => {
+    const catalog = effectiveCatalog({ modelOverrides: {
+      'gpt-6.1-sol': { contextWindow: 200_000, maxTokens: 8_192, input: ['text'] },
+    } })
+    expect(catalog.find(entry => entry.id === 'gpt-6.1-sol')).toMatchObject({
+      contextWindow: 200_000, maxTokens: 8_192, input: ['text'],
+    })
+    expect(catalog.find(entry => entry.id === 'gpt-6-astra')).toMatchObject({
+      contextWindow: 1_050_000, maxTokens: 128_000, input: ['text', 'image'],
+    })
   })
 
   it('adds an override that names a model the shipped catalog does not carry', () => {

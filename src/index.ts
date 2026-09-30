@@ -26,6 +26,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-attachment'
 import { NowCodingAdapter } from './adapter.ts'
 import {
   Config,
@@ -106,7 +107,7 @@ export const inject = ['llm']
 export function apply(ctx: Context, config: NowCodingConfig): void {
   const options = (): NowCodingResolvedOptions => resolveNowCodingOptions(ctx, config)
 
-  ctx.llm.registerAdapter([NOWCODING_PROVIDER_ROUTE], new NowCodingAdapter({ options }))
+  ctx.llm.registerAdapter([NOWCODING_PROVIDER_ROUTE], new NowCodingAdapter({ options, attachments: () => ctx.get('attachments') }))
   // Advertising the route lets configuration surfaces offer it beside the live
   // one, and name the section a page writes.
   ctx.llm.registerConfigurableProviders([{

@@ -4,9 +4,11 @@
  * No spec here reaches the network: every provider call is answered by the fake
  * transport built below, so the suite runs in CI without a NowCoding key.
  */
-import { BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm/brand'
+import { BlockAssembler, LlmError, offloadedImageText, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentStore, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { ContentBlock, GenerateOptions, ImageBlock, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
+import { MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm/brand'
 import { describe, expect, it } from 'vitest'
 import { NowCodingAdapter } from '../src/adapter.ts'
 import { NOWCODING_BUILTIN_CATALOG, type NowCodingCatalogModel } from '../src/catalog.ts'
@@ -20,6 +22,17 @@ const BASE_URL = 'https://nowcoding.ai/v1'
 /** A fast-capable catalog model: its `-fast` alias selects a tier, never a wire id. */
 const MODEL = 'gpt-5.4'
 const FAST_MODEL = `${MODEL}-fast`
+
+/** Durable reference plus a distinct verified request version; bytes are never read from the ref. */
+const IMAGE: ImageBlock = {
+  type: 'image',
+  attachment: { attachmentId: AttachmentId('sha256:abc'), width: 2, height: 2, bytes: 9, mediaType: 'image/png' },
+}
+const IMAGE_VERSION: RequestImageAttachment = {
+  variantId: ImageVariantId('sha256:request'), attachment: IMAGE.attachment,
+  data: new Uint8Array([1, 2, 3]), mediaType: 'image/jpeg', bytes: 3,
+  width: 1, height: 1, depth: 'uchar', space: 'srgb', hasAlpha: false,
+}
 
 /** Route configuration with every field the adapter reads. */
 function options(overrides: Partial<NowCodingResolvedOptions> = {}): NowCodingResolvedOptions {
@@ -397,7 +410,102 @@ describe('NowCodingAdapter request mapping', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('refuses an image occurrence rather than dropping the attachment', async () => {
+  it('sends verified request-version image bytes in text/image order, including fast aliases', async () => {
+    const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
+    const reads: unknown[] = []
+    const attachments: Pick<AttachmentStore, 'readImageRequest'> = {
+      async readImageRequest(ref, target, signal) {
+        reads.push({ ref, target })
+        expect(signal).toBeInstanceOf(AbortSignal)
+        expect(signal?.aborted).toBe(false)
+        return IMAGE_VERSION
+      },
+    }
+    const adapter = new NowCodingAdapter({ options: () => options(), fetchImpl, attachments: () => attachments })
+    const another = { ...IMAGE, attachment: { ...IMAGE.attachment, name: 'second.png' } }
+    await collect(adapter.stream(request({ model: FAST_MODEL, messages: [
+      { role: 'user', content: [{ type: 'text', text: 'before' }, IMAGE, { type: 'text', text: 'after' }, another] },
+    ] })))
+    expect(reads).toEqual([{ ref: IMAGE.attachment, target: { width: 2, height: 2, maxBytes: 9 } }])
+    expect(calls[0]?.body.messages).toEqual([{ role: 'user', content: [
+      { type: 'text', text: 'before' },
+      { type: 'text', text: requestImageHandleText(IMAGE.attachment, IMAGE_VERSION) },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AQID' } },
+      { type: 'text', text: 'after' },
+      { type: 'text', text: requestImageHandleText(another.attachment, IMAGE_VERSION) },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AQID' } },
+    ] }])
+    expect(calls[0]?.body.model).toBe(MODEL)
+    expect(calls[0]?.body.service_tier).toBe('priority')
+    expect(IMAGE.attachment.mediaType).toBe('image/png')
+  })
+
+  it('preserves offloaded images as Harness placeholders without reading bytes', async () => {
+    const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
+    const adapter = new NowCodingAdapter({ options: () => options(), fetchImpl })
+    await collect(adapter.stream(request({ messages: [{ role: 'user', content: [{ ...IMAGE, offloaded: true }] }] })))
+    expect(calls[0]?.body.messages).toEqual([{ role: 'user', content: offloadedImageText(IMAGE.attachment) }])
+  })
+
+  it('refuses retained images for a text-only model before attachment or provider I/O', async () => {
+    const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
+    const adapter = new NowCodingAdapter({ options: () => options(), fetchImpl, attachments: () => ({
+      async readImageRequest() { throw new Error('must not read a text-only image') },
+    }) })
+    await expect(collect(adapter.stream(request({ model: 'gpt-5.3-codex-spark', messages: [
+      { role: 'user', content: [IMAGE] },
+    ] })))).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('refuses images in assistant history before attachment or provider I/O', async () => {
+    const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
+    const adapter = new NowCodingAdapter({ options: () => options(), fetchImpl, attachments: () => ({
+      async readImageRequest() { throw new Error('must not read an assistant image') },
+    }) })
+    await expect(collect(adapter.stream(request({ messages: [{
+      role: 'assistant', id: MessageId('m-image'), source: { kind: 'model', provider: 'nowcoding', model: MODEL }, content: [IMAGE],
+    }] })))).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('sends none reasoning literally and rejects a level absent from official metadata', async () => {
+    const { calls } = await run(TEXT_TRANSCRIPT, { reasoningEffort: ReasoningEffortId('none') })
+    expect(calls[0]?.body.reasoning_effort).toBe('none')
+    const rejected = stubFetch(TEXT_TRANSCRIPT)
+    const adapter = new NowCodingAdapter({ options: () => options(), fetchImpl: rejected.fetchImpl })
+    await expect(collect(adapter.stream(request({ reasoningEffort: ReasoningEffortId('max') }))))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
+    expect(rejected.calls).toHaveLength(0)
+  })
+
+  it('reports attachment read failures before provider I/O', async () => {
+    const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
+    const adapter = new NowCodingAdapter({ options: () => options(), fetchImpl, attachments: () => ({
+      async readImageRequest() { throw new Error('missing attachment') },
+    }) })
+    await expect(collect(adapter.stream(request({ messages: [{ role: 'user', content: [IMAGE] }] }))))
+      .rejects.toMatchObject({ code: 'ATTACHMENT' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('propagates cancellation during attachment reads without sending the provider request', async () => {
+    const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
+    const controller = new AbortController()
+    const adapter = new NowCodingAdapter({ options: () => options(), fetchImpl, attachments: () => ({
+      async readImageRequest(_ref, _target, signal) {
+        controller.abort()
+        signal?.throwIfAborted()
+        return IMAGE_VERSION
+      },
+    }) })
+    await expect(collect(adapter.stream(request({ signal: controller.signal, messages: [
+      { role: 'user', content: [IMAGE] },
+    ] })))).rejects.toMatchObject({ code: 'ABORTED' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('refuses an image without a host attachment store rather than dropping it', async () => {
     const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
     const image = {
       type: 'image',
@@ -556,7 +664,8 @@ describe('NowCodingAdapter metadata', () => {
     expect(await adapter.resolveModel('nowcoding', MODEL)).toMatchObject({
       provider: 'nowcoding',
       id: MODEL,
-      context: { contextWindow: 400_000 },
+      inputModalities: ['text', 'image'],
+      context: { contextWindow: 1_050_000 },
       defaultMaxTokens: 128_000,
     })
     expect(await adapter.resolveModel('nowcoding', 'unknown-model')).toEqual({

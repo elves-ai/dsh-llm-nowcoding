@@ -24,6 +24,7 @@
  */
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm';
+import type { AttachmentStore } from '@deepseek-ai/dsh-attachment';
 import type { NowCodingResolvedOptions } from './config.ts';
 /** Everything the adapter reads from outside itself. */
 export interface NowCodingAdapterOptions {
@@ -34,11 +35,14 @@ export interface NowCodingAdapterOptions {
     options: () => NowCodingResolvedOptions;
     /** Transport override for tests and for deployments that bring their own. */
     fetchImpl?: typeof fetch;
+    /** Current host-owned attachment store, resolved at the start of each request. */
+    attachments?: () => Pick<AttachmentStore, 'readImageRequest'> | undefined;
 }
 /** NowCoding gateway adapter, speaking OpenAI Chat Completions over SSE. */
 export declare class NowCodingAdapter extends LlmAdapter {
     private readonly settings;
     private readonly fetchImpl;
+    private readonly attachments;
     /**
      * @param options - either the current-configuration reader, or that reader
      *   plus a transport override.

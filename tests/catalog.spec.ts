@@ -52,3 +52,40 @@ describe('selector expansion', () => {
     }
   })
 })
+
+/** Literal official specifications; no network is reached by the unit suite. */
+describe('official GPT model specifications', () => {
+  it.each([
+    ['gpt-6-astra', 1_050_000], ['gpt-6-sol', 1_050_000], ['gpt-6.1-sol', 1_050_000],
+    ['gpt-5.6-sol', 1_050_000], ['gpt-5.6-terra', 1_050_000], ['gpt-5.6-luna', 1_050_000],
+    ['gpt-5.5', 1_050_000], ['gpt-5.4', 1_050_000],
+    ['gpt-5.4-mini', 400_000], ['gpt-5.3-codex', 400_000],
+  ])('declares the official window, output cap and vision input for %s', (id, contextWindow) => {
+    expect(catalogEntry(NOWCODING_BUILTIN_CATALOG, String(id))).toMatchObject({
+      contextWindow, maxTokens: 128_000, input: ['text', 'image'],
+    })
+  })
+
+  it('does not invent vision or a larger context for the text-only Spark preview', () => {
+    expect(catalogEntry(NOWCODING_BUILTIN_CATALOG, 'gpt-5.3-codex-spark')).toMatchObject({
+      contextWindow: 128_000, input: ['text'],
+    })
+  })
+
+  it.each([
+    ['gpt-6.1-sol', ['low', 'medium', 'high', 'xhigh', 'max']],
+    ['gpt-6-astra', ['low', 'medium', 'high', 'xhigh', 'max']],
+    ['gpt-6-sol', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['gpt-5.6-sol', ['none', 'low', 'medium', 'high', 'xhigh', 'max']],
+    ['gpt-5.4', ['none', 'low', 'medium', 'high', 'xhigh']],
+    ['gpt-5.3-codex', ['low', 'medium', 'high', 'xhigh']],
+  ])('offers only the official reasoning levels for %s', (id, efforts) => {
+    expect(Object.keys(catalogEntry(NOWCODING_BUILTIN_CATALOG, id)?.reasoningEfforts ?? {})).toEqual(efforts)
+  })
+
+  it('keeps gateway-only aliases visibly unverified', () => {
+    for (const id of ['gpt-5.4-openai-compact', 'codex-auto-review']) {
+      expect(catalogEntry(NOWCODING_BUILTIN_CATALOG, id)?.description).toContain('unverified')
+    }
+  })
+})

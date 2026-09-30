@@ -57,6 +57,8 @@ export declare const FAST_MODEL_SUFFIX = "-fast";
  * The shipped catalog, snapshotted from the gateway's published pricing on
  * 2026-09-30. Keep ids version-exact and lowercase: a near miss surfaces as a
  * provider error on the first request rather than as a corrected model.
+ * GPT capacities/modalities follow https://developers.openai.com/api/docs/models
+ * (one official page per exact id); gateway-only aliases remain explicitly unverified.
  */
 export declare const NOWCODING_BUILTIN_CATALOG: readonly NowCodingCatalogModel[];
 /**
