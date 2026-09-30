@@ -171,6 +171,8 @@ function validateOp(op: unknown): asserts op is SettingsPathOp {
   switch (field) {
     case 'apiKey':
     case 'baseURL':
+    case 'panelToken':
+    case 'panelUserId':
       if (typeof value !== 'string') throw new NowCodingRouteError('bad-request', `"${field}" must be a string`)
       return
     case 'fast':
@@ -243,7 +245,12 @@ async function readQuota(options: NowCodingResolvedOptions): Promise<NowCodingQu
   // A keyless route is a normal first-run state, not a failure: the card says
   // so instead of surfacing a credential error the user cannot act on yet.
   if (options.apiKey.length === 0) return { ...shared, snapshot: null }
-  const reader = createQuotaReader({ baseURL: options.baseURL, apiKey: options.apiKey })
+  const reader = createQuotaReader({
+    baseURL: options.baseURL,
+    apiKey: options.apiKey,
+    panelToken: options.panelToken,
+    panelUserId: options.panelUserId,
+  })
   return { ...shared, snapshot: await reader.read() }
 }
 

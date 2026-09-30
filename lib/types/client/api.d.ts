@@ -24,10 +24,18 @@ export interface NowCodingQuotaSnapshotView {
     remaining: number;
     /** True for an unmetered key, where the three amounts are the gateway's sentinel. */
     unlimited: boolean;
+    /** Which document this balance came from: a monthly plan or the wallet. */
+    source: 'subscription' | 'billing';
     /** Epoch milliseconds when the grant lapses; 0 means it does not. */
     accessUntil: number;
+    /** Epoch milliseconds of the next scheduled reset; 0 when the source schedules none. */
+    resetAt: number;
     /** Epoch milliseconds when the Host read the balance. */
     fetchedAt: number;
+    /** Plan title, present for a subscription. */
+    planTitle?: string;
+    /** Reset cadence as the gateway names it, present for a subscription. */
+    resetPeriod?: string;
 }
 /** Answer of `quota.get`. */
 export interface NowCodingQuotaView {
@@ -72,6 +80,8 @@ export interface NowCodingSettingsView {
     fastServiceTier?: NowCodingFastServiceTier;
     /** Show the remaining-quota card at the sidebar foot. */
     quotaCard?: boolean;
+    /** Dashboard user id sent as `New-Api-User`; the panel token itself never rides a response. */
+    panelUserId?: string;
 }
 /** One path-addressed settings edit sent to the Host route. */
 export type NowCodingSettingsOp = {
@@ -121,3 +131,9 @@ export declare function onNowCodingSettingsCommitted(listener: () => void): () =
 export declare function settingsViewOf(envelope: NowCodingSettingsEnvelope): NowCodingSettingsView;
 /** True when the write-only `apiKey` slot currently holds a value. */
 export declare function isNowCodingApiKeyConfigured(envelope: NowCodingSettingsEnvelope): boolean;
+/**
+ * True when the write-only `panelToken` slot currently holds a value.
+ * @param envelope - a settings envelope.
+ * @returns whether a dashboard token is stored.
+ */
+export declare function isNowCodingPanelTokenConfigured(envelope: NowCodingSettingsEnvelope): boolean;

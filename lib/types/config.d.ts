@@ -92,6 +92,10 @@ export interface Config {
     fastServiceTier: Volatile<NowCodingFastServiceTier>;
     /** Whether the sidebar quota card is shown. */
     quotaCard: Volatile<boolean>;
+    /** Dashboard access token; required to read a monthly plan's allowance. */
+    panelToken: Volatile<string | undefined>;
+    /** Dashboard user id sent as `New-Api-User`; required by the console chain. */
+    panelUserId: Volatile<string | undefined>;
     /** Seconds between balance refreshes in the sidebar card. */
     quotaRefreshSeconds: Volatile<number>;
     /**
@@ -130,6 +134,8 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     fast: z<boolean, boolean, "volatile-defined">;
     fastServiceTier: z<"fast" | "priority", "fast" | "priority", "volatile-defined">;
     quotaCard: z<boolean, boolean, "volatile-defined">;
+    panelToken: z<string, string, "volatile">;
+    panelUserId: z<string, string, "volatile">;
     quotaRefreshSeconds: z<number, number, "volatile-defined">;
     settingsNs: z<string, string, "volatile-defined">;
     models: z<NoInfer<({
@@ -184,6 +190,8 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     fast: z<boolean, boolean, "volatile-defined">;
     fastServiceTier: z<"fast" | "priority", "fast" | "priority", "volatile-defined">;
     quotaCard: z<boolean, boolean, "volatile-defined">;
+    panelToken: z<string, string, "volatile">;
+    panelUserId: z<string, string, "volatile">;
     quotaRefreshSeconds: z<number, number, "volatile-defined">;
     settingsNs: z<string, string, "volatile-defined">;
     models: z<NoInfer<({
@@ -267,6 +275,10 @@ export interface NowCodingResolvedOptions {
     catalog: readonly ResolvedNowCodingModel[];
     /** Whether the sidebar quota card is shown. */
     quotaCard: boolean;
+    /** Dashboard access token; empty leaves the reader on the relay billing pair. */
+    panelToken: string;
+    /** Dashboard user id sent as `New-Api-User`. */
+    panelUserId: string;
     /** Seconds between balance refreshes. */
     quotaRefreshSeconds: number;
     /** Per-request timeout in milliseconds. */

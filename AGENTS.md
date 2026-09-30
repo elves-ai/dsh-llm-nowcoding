@@ -89,11 +89,13 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 
 ### Quota semantics
 
-`quota.ts` exists because the gateway's billing document is easy to misread. Three properties are load-bearing, and each has a comment at its site:
+`quota.ts` reads two balances on two authentication chains, and every property below is load-bearing:
 
-- `soft_limit_usd` is the **granted total**, not the remaining balance. Remaining is `soft_limit_usd - total_usage / 100`.
-- `total_usage` is in **hundredths** of the display currency.
-- The `*_usd` names carry the **display currency, which this gateway sets to CNY**. Labelling them as dollars overstates a balance by the exchange rate.
+- **Subscription (console chain).** `GET {origin}/api/subscription/self` with `Authorization: Bearer <dashboard token>` **and** `New-Api-User: <user id>`. The `sk-` model key is rejected here, so this balance is unavailable without the second credential — and the chain reports that rejection as **HTTP 200 with `success: false`**, which reads as an empty plan unless the body is checked.
+- **Wallet (relay chain).** `GET {base}/dashboard/billing/{subscription,usage}` with the model key.
+- **Subscription amounts are raw quota units.** A displayed amount is `raw / quota_per_unit`, and `quota_per_unit` comes from the public `/api/status`; a guessed divisor misreports every figure, so the snapshot records the one it used.
+- `soft_limit_usd` (wallet) is the **granted total**, not the remaining balance. Remaining is `soft_limit_usd - total_usage / 100`.
+- `total_usage` is in **hundredths**, and the `*_usd` names carry the **display currency, which this gateway sets to CNY**.
 
 `NOWCODING_UNLIMITED_QUOTA_SENTINEL` marks a key with no limit. A reader change must keep the `unreachable` / `unauthorized` / `gateway-error` / `unprocessable` / `timeout` classification: the card branches on it and a stale number must never be presented as current.
 
@@ -123,7 +125,9 @@ These were confirmed against the live gateway on **2026-09-30**. The gateway is 
 | Auth | `Authorization: Bearer sk-...`; no extra headers required | — |
 | Public catalog | `GET /api/pricing` (no credential) | returns `data[]`, `group_ratio`, `supported_endpoint` |
 | Key-scoped models | `GET /v1/models` | 401 with the same error body as `/dashboard/billing/*`, so both sit behind one token-auth chain |
-| Balance | `GET {base}/dashboard/billing/subscription` and `/usage` | 401 for a bad key, not 404, which is what proves the routes exist |
+| Wallet balance | `GET {base}/dashboard/billing/subscription` and `/usage` | 401 for a bad key, not 404, which is what proves the routes exist |
+| Subscription balance | `GET {origin}/api/subscription/self` | needs a dashboard token **and** `New-Api-User`; a bad credential answers `200 {success:false}` |
+| Display divisor | `quota_per_unit` = 500000 | `GET /api/status` → `data.quota_per_unit` |
 | Display currency | CNY despite `*_usd` field names | `GET /api/status` → `quota_display_type` |
 | Health and latency | `GET /api/service-status/overview` (public) | per-group probes with `template` naming the protocol actually used |
 | Fast passthrough | management-side `allow_service_tier`, value not public | compare the tier echoed in responses with and without the field |

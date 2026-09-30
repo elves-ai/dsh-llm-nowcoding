@@ -31,6 +31,8 @@ function options(overrides: Partial<NowCodingResolvedOptions> = {}): NowCodingRe
     fastServiceTier: 'priority',
     catalog: NOWCODING_BUILTIN_CATALOG,
     quotaCard: false,
+    panelToken: '',
+    panelUserId: '',
     quotaRefreshSeconds: 300,
     requestTimeoutMs: 300_000,
     settingsNs: 'llm-nowcoding',

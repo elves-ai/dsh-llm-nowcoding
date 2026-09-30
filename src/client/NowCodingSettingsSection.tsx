@@ -26,6 +26,7 @@ import {
   getNowCodingSettings,
   getQuota,
   isNowCodingApiKeyConfigured,
+  isNowCodingPanelTokenConfigured,
   mutateNowCodingSettings,
   settingsViewOf,
   type NowCodingQuotaView,
@@ -41,6 +42,8 @@ interface Drafts {
   fast: boolean
   fastServiceTier: NowCodingFastServiceTier
   quotaCard: boolean
+  panelUserId: string
+  panelToken: string
 }
 
 const INITIAL_DRAFTS: Drafts = {
@@ -49,6 +52,8 @@ const INITIAL_DRAFTS: Drafts = {
   fast: NOWCODING_SETTINGS_DEFAULTS.fast,
   fastServiceTier: NOWCODING_SETTINGS_DEFAULTS.fastServiceTier,
   quotaCard: NOWCODING_SETTINGS_DEFAULTS.quotaCard,
+  panelUserId: '',
+  panelToken: '',
 }
 
 /** The two wire spellings of the fast tier, in presentation order. */
@@ -66,6 +71,9 @@ function draftsOf(envelope: NowCodingSettingsEnvelope): Drafts {
     fast: typeof view.fast === 'boolean' ? view.fast : NOWCODING_SETTINGS_DEFAULTS.fast,
     fastServiceTier: view.fastServiceTier ?? NOWCODING_SETTINGS_DEFAULTS.fastServiceTier,
     quotaCard: typeof view.quotaCard === 'boolean' ? view.quotaCard : NOWCODING_SETTINGS_DEFAULTS.quotaCard,
+    panelUserId: view.panelUserId ?? '',
+    // Write-only: the stored token never rides a response, so the draft starts blank.
+    panelToken: '',
   }
 }
 
@@ -103,6 +111,7 @@ export function NowCodingSettingsSection(): ReactElement | null {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
+  const [showPanelToken, setShowPanelToken] = useState(false)
   const [quota, setQuota] = useState<NowCodingQuotaView | null>(null)
   const [quotaLoading, setQuotaLoading] = useState(false)
   const [quotaError, setQuotaError] = useState<string | null>(null)
@@ -172,6 +181,12 @@ export function NowCodingSettingsSection(): ReactElement | null {
     ops.push({ op: 'set', path: ['fast'], value: drafts.fast })
     ops.push({ op: 'set', path: ['fastServiceTier'], value: drafts.fastServiceTier })
     ops.push({ op: 'set', path: ['quotaCard'], value: drafts.quotaCard })
+    const panelUserId = drafts.panelUserId.trim()
+    if (panelUserId === '') ops.push({ op: 'unset', path: ['panelUserId'] })
+    else ops.push({ op: 'set', path: ['panelUserId'], value: panelUserId })
+    // Blank means "keep the stored token"; Clear is the only way to remove it.
+    const panelToken = drafts.panelToken.trim()
+    if (panelToken !== '') ops.push({ op: 'set', path: ['panelToken'], value: panelToken })
     void applyOps(ops)
   }
 
@@ -186,6 +201,7 @@ export function NowCodingSettingsSection(): ReactElement | null {
   }
 
   const configured = isNowCodingApiKeyConfigured(envelope)
+  const panelConfigured = isNowCodingPanelTokenConfigured(envelope)
   const disabled = envelope.writable === false || saving
   const snapshot = quota === null ? null : quota.snapshot
 
@@ -307,6 +323,69 @@ export function NowCodingSettingsSection(): ReactElement | null {
               aria-label="在左侧栏显示余量卡片"
               onChange={event => { setDrafts({ ...drafts, quotaCard: event.currentTarget.checked }) }}
             />
+          </div>
+        </div>
+      </div>
+
+      <div className={css.card}>
+        <p className={css.cardIntro}>订阅（月卡）余量需要控制台凭据：控制台接口不接受 sk- 开头的模型 Key。两项都留空时，卡片显示按量余额。</p>
+
+        <div className={css.row}>
+          <div className={css.rowText}>
+            <label className={css.title} htmlFor="nowcoding-panel-user">面板用户 ID</label>
+            <span className={css.desc}>控制台里的数字用户 ID，连同面板令牌一起作为 New-Api-User 头发送。</span>
+          </div>
+          <div className={css.control}>
+            <input
+              id="nowcoding-panel-user"
+              className={css.input}
+              type="text"
+              autoComplete="off"
+              value={drafts.panelUserId}
+              placeholder="例如 8893"
+              disabled={disabled}
+              onChange={event => { setDrafts({ ...drafts, panelUserId: event.currentTarget.value }) }}
+            />
+          </div>
+        </div>
+
+        <div className={css.row}>
+          <div className={css.rowText}>
+            <label className={css.title} htmlFor="nowcoding-panel-token">面板访问令牌</label>
+            <span className={css.desc}>在控制台的系统访问令牌页生成。读取订阅额度时用它，不会回显；留空保存表示保持当前值。</span>
+          </div>
+          <div className={css.control}>
+            <input
+              id="nowcoding-panel-token"
+              className={css.input}
+              type={showPanelToken ? 'text' : 'password'}
+              autoComplete="off"
+              value={drafts.panelToken}
+              placeholder={panelConfigured ? '已配置（留空保持不变）' : '未配置'}
+              disabled={disabled}
+              onChange={event => { setDrafts({ ...drafts, panelToken: event.currentTarget.value }) }}
+            />
+            <button
+              type="button"
+              className={css.iconButton}
+              aria-label={showPanelToken ? '隐藏面板访问令牌' : '显示面板访问令牌'}
+              title={showPanelToken ? '隐藏面板访问令牌' : '显示面板访问令牌'}
+              disabled={disabled}
+              onClick={() => { setShowPanelToken(previous => !previous) }}
+            >
+              {showPanelToken ? '隐藏' : '显示'}
+            </button>
+            <span className={panelConfigured ? css.badgeOn : css.badgeOff}>{panelConfigured ? '已配置' : '未配置'}</span>
+            {panelConfigured && (
+              <button
+                type="button"
+                className={css.button}
+                disabled={disabled}
+                onClick={() => { void applyOps([{ op: 'unset', path: ['panelToken'] }]) }}
+              >
+                清除
+              </button>
+            )}
           </div>
         </div>
       </div>

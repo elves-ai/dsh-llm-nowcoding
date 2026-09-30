@@ -11,8 +11,8 @@
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--dsw-color-text-secondary, #6b7280);
-  background: var(--dsw-color-surface-subtle, rgb(127 127 127 / 8%));
+  color: var(--dsw-text-secondary, #9a9aa8);
+  background: var(--dsw-alias-bg-layer-3, rgb(127 127 127 / 8%));
 }
 
 .card[data-state='failed'] {
@@ -30,37 +30,42 @@
 
 .summary {
   font-weight: 600;
-  color: var(--dsw-color-text-primary, #111827);
+  color: var(--dsw-text-primary, #f2f2f5);
 }
 
 .card[data-state='low'] .summary {
-  color: var(--dsw-color-warning, #b45309);
+  color: var(--dsw-alias-warning, #e0a44a);
 }
 
 .total {
-  color: var(--dsw-color-text-tertiary, #9ca3af);
+  color: var(--dsw-text-tertiary, #6f6f7e);
+}
+
+.detail {
+  color: var(--dsw-text-tertiary, #6f6f7e);
+  font-size: 11px;
 }
 
 .track {
   height: 4px;
   overflow: hidden;
   border-radius: 2px;
-  background: var(--dsw-color-border-subtle, rgb(127 127 127 / 20%));
+  background: var(--dsw-line-secondary, #2a2a35);
 }
 
 .fill {
   height: 100%;
   border-radius: 2px;
-  background: var(--dsw-color-accent, #4d6bfe);
+  background: var(--dsw-alias-brand, #4d6bfe);
 }
 
 .card[data-state='low'] .fill {
-  background: var(--dsw-color-warning, #b45309);
+  background: var(--dsw-alias-warning, #e0a44a);
 }
 
 .retry {
   padding: 0 6px;
-  border: 1px solid var(--dsw-color-border-subtle, rgb(127 127 127 / 30%));
+  border: 1px solid var(--dsw-line-secondary, #2a2a35);
   border-radius: 4px;
   color: inherit;
   font: inherit;

@@ -40,7 +40,35 @@ function isLow(snapshot: NowCodingQuotaSnapshotView): boolean {
 /** The one-line summary the card renders for a loaded balance. */
 function summaryOf(snapshot: NowCodingQuotaSnapshotView, currency: string): string {
   if (snapshot.unlimited) return '不限额度'
-  return `剩余 ${formatAmount(snapshot.remaining, currency)}`
+  return snapshot.source === 'subscription'
+    ? `订阅剩余 ${formatAmount(snapshot.remaining, currency)}`
+    : `剩余 ${formatAmount(snapshot.remaining, currency)}`
+}
+
+/** What period a subscription's figures cover, as the gateway names it. */
+function periodLabel(resetPeriod: string | undefined): string {
+  if (resetPeriod === 'daily') return '每日额度'
+  if (resetPeriod === 'weekly') return '每周额度'
+  if (resetPeriod === 'monthly') return '每月额度'
+  return '订阅额度'
+}
+
+/** A reset instant as a short local label; the weekday is enough when it is not today. */
+function formatReset(epochMs: number): string {
+  const at = new Date(epochMs)
+  const now = new Date()
+  const sameDay = at.getFullYear() === now.getFullYear()
+    && at.getMonth() === now.getMonth()
+    && at.getDate() === now.getDate()
+  const clock = String(at.getHours()).padStart(2, '0') + ':' + String(at.getMinutes()).padStart(2, '0')
+  return sameDay ? clock : (at.getMonth() + 1) + '月' + at.getDate() + '日 ' + clock
+}
+
+/** The second line: which period the balance covers and when it resets. */
+function detailOf(snapshot: NowCodingQuotaSnapshotView): string | undefined {
+  if (snapshot.source !== 'subscription') return undefined
+  const period = periodLabel(snapshot.resetPeriod)
+  return snapshot.resetAt > 0 ? `${period} · ${formatReset(snapshot.resetAt)} 重置` : period
 }
 
 /** Fill share of the grant, clamped to a renderable range. */
@@ -110,14 +138,16 @@ export function NowCodingQuotaCard(): ReactElement | null {
   }
 
   const low = isLow(snapshot)
+  const detail = detailOf(snapshot)
   return (
-    <div className={styles.card} data-state={low ? 'low' : 'ready'}>
+    <div className={styles.card} data-state={low ? 'low' : 'ready'} title={snapshot.planTitle ?? undefined}>
       <div className={styles.row}>
         <span className={styles.summary}>{summaryOf(snapshot, currency)}</span>
         <span className={styles.total}>
           {snapshot.unlimited ? '' : `/ ${formatAmount(snapshot.total, currency)}`}
         </span>
       </div>
+      {detail !== undefined && <span className={styles.detail}>{detail}</span>}
       <div className={styles.track}>
         <div className={styles.fill} style={{ width: `${fillPercent(snapshot)}%` }} />
       </div>

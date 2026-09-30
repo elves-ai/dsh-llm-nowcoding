@@ -12,7 +12,15 @@
 export const NOWCODING_SETTINGS_NAMESPACE = 'llm-nowcoding'
 
 /** Settings fields editable from the NowCoding settings page. */
-export const NOWCODING_SETTINGS_FIELDS = ['apiKey', 'baseURL', 'fast', 'fastServiceTier', 'quotaCard'] as const
+export const NOWCODING_SETTINGS_FIELDS = [
+  'apiKey',
+  'baseURL',
+  'fast',
+  'fastServiceTier',
+  'quotaCard',
+  'panelToken',
+  'panelUserId',
+] as const
 
 /** One editable NowCoding settings field. */
 export type NowCodingSettingsField = typeof NOWCODING_SETTINGS_FIELDS[number]
@@ -46,8 +54,35 @@ export const NOWCODING_MODELS_PATH = '/models'
  */
 export const NOWCODING_PRICING_PATH = '/api/pricing'
 
-/** Public gateway status document, appended to the gateway origin. */
+/**
+ * Public gateway status document, appended to the gateway origin.
+ *
+ * It carries `quota_per_unit`, the divisor every displayed amount uses, which
+ * is why reading a subscription balance takes two requests: the subscription
+ * document reports raw units and the status document says how many make one
+ * displayed unit.
+ */
 export const NOWCODING_STATUS_PATH = '/api/status'
+
+/**
+ * Subscription document, appended to the gateway **origin** rather than to the
+ * endpoint base.
+ *
+ * This is the console API, not the relay API: it reports the monthly plan's
+ * allowance and its consumption against it, which is the figure the gateway's
+ * own console shows. It authenticates with a dashboard access token plus the
+ * `New-Api-User` header — the `sk-` model key is rejected on this chain.
+ */
+export const NOWCODING_SUBSCRIPTION_PATH = '/api/subscription/self'
+
+/**
+ * Divisor assumed when the status document cannot be read.
+ *
+ * This deployment reports `quota_per_unit: 500000`. The fallback keeps a
+ * balance readable while the status probe is unreachable; the snapshot records
+ * how many units it divided by so a wrong divisor is visible rather than silent.
+ */
+export const NOWCODING_FALLBACK_QUOTA_PER_UNIT = 500_000
 
 /**
  * Remaining-quota path appended to the endpoint base.
@@ -117,6 +152,22 @@ export interface NowCodingSettings {
   fastServiceTier?: NowCodingFastServiceTier
   /** Show the remaining-quota card above Settings in the left sidebar. */
   quotaCard?: boolean
+  /**
+   * Dashboard access token, used only to read the subscription document.
+   *
+   * The console API rejects the `sk-` model key, so a monthly-plan balance
+   * needs this second credential; the console issues one on its system access
+   * token page. Leaving it empty keeps the card on the relay billing pair,
+   * which reports the pay-as-you-go balance instead.
+   */
+  panelToken?: string
+  /**
+   * Dashboard user id, sent as `New-Api-User`.
+   *
+   * The console validates that header against the token's owner, so it is
+   * required wherever `panelToken` is.
+   */
+  panelUserId?: string
 }
 
 /** Schema-default fallbacks used by the client while the settings route is unavailable. */
@@ -126,4 +177,6 @@ export const NOWCODING_SETTINGS_DEFAULTS = {
   fast: false,
   fastServiceTier: 'priority' as NowCodingFastServiceTier,
   quotaCard: true,
+  panelToken: '',
+  panelUserId: '',
 } as const

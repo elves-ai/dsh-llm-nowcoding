@@ -1,4 +1,6 @@
-/* DRAFT: styles for the optional NowCoding settings page. */
+/* Styles for the NowCoding settings page. Colours resolve through the shell's
+   CSS custom properties with a neutral fallback, so the page stays legible
+   under a deployment theme that does not define every token. */
 
 .section {
   display: flex;
@@ -11,6 +13,14 @@
   color: var(--dsw-text-secondary, #9a9aa8);
   font-size: 13px;
   line-height: 1.55;
+}
+
+.cardIntro {
+  margin: 0;
+  padding: 12px 16px 0;
+  color: var(--dsw-text-secondary, #9a9aa8);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .card {

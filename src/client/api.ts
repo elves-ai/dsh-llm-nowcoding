@@ -26,10 +26,18 @@ export interface NowCodingQuotaSnapshotView {
   remaining: number
   /** True for an unmetered key, where the three amounts are the gateway's sentinel. */
   unlimited: boolean
+  /** Which document this balance came from: a monthly plan or the wallet. */
+  source: 'subscription' | 'billing'
   /** Epoch milliseconds when the grant lapses; 0 means it does not. */
   accessUntil: number
+  /** Epoch milliseconds of the next scheduled reset; 0 when the source schedules none. */
+  resetAt: number
   /** Epoch milliseconds when the Host read the balance. */
   fetchedAt: number
+  /** Plan title, present for a subscription. */
+  planTitle?: string
+  /** Reset cadence as the gateway names it, present for a subscription. */
+  resetPeriod?: string
 }
 
 /** Answer of `quota.get`. */
@@ -78,6 +86,8 @@ export interface NowCodingSettingsView {
   fastServiceTier?: NowCodingFastServiceTier
   /** Show the remaining-quota card at the sidebar foot. */
   quotaCard?: boolean
+  /** Dashboard user id sent as `New-Api-User`; the panel token itself never rides a response. */
+  panelUserId?: string
 }
 
 /** One path-addressed settings edit sent to the Host route. */
@@ -205,10 +215,25 @@ export function settingsViewOf(envelope: NowCodingSettingsEnvelope): NowCodingSe
     ...typeof value.fast === 'boolean' ? { fast: value.fast } : {},
     ...tier === 'priority' || tier === 'fast' ? { fastServiceTier: tier } : {},
     ...typeof value.quotaCard === 'boolean' ? { quotaCard: value.quotaCard } : {},
+    ...typeof value.panelUserId === 'string' ? { panelUserId: value.panelUserId } : {},
   }
 }
 
 /** True when the write-only `apiKey` slot currently holds a value. */
 export function isNowCodingApiKeyConfigured(envelope: NowCodingSettingsEnvelope): boolean {
-  return envelope.secrets.some(secret => secret.path.length === 1 && secret.path[0] === 'apiKey' && secret.set)
+  return secretSet(envelope, 'apiKey')
+}
+
+/**
+ * True when the write-only `panelToken` slot currently holds a value.
+ * @param envelope - a settings envelope.
+ * @returns whether a dashboard token is stored.
+ */
+export function isNowCodingPanelTokenConfigured(envelope: NowCodingSettingsEnvelope): boolean {
+  return secretSet(envelope, 'panelToken')
+}
+
+/** Whether one top-level secret slot holds a value. */
+function secretSet(envelope: NowCodingSettingsEnvelope, field: string): boolean {
+  return envelope.secrets.some(secret => secret.path.length === 1 && secret.path[0] === field && secret.set)
 }

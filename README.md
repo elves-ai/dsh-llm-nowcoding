@@ -27,7 +27,7 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 - **GPT fast mode.** Fast-capable GPT models get a second picker entry (`gpt-5.6-sol-fast`) that sends the same wire model with `service_tier`; a route default turns it on for every fast-capable model. See [Fast mode](#fast-mode) for the caveat that actually decides whether it takes effect.
 - **Selectable reasoning levels.** Each model declares the levels its picker offers and the spelling the request sends, so the level ids never leak into the wire format.
 - **Dedicated settings page.** **DSH Settings → NowCoding** holds the key, the endpoint, fast mode, and the sidebar switch, plus a balance block with a manual refresh. The Harness renders no second page for the same section.
-- **Remaining-quota reader.** The plugin reads the gateway's OpenAI-compatible billing pair with the same API key chat uses, and shows the balance in a card at the sidebar foot, directly beside Settings.
+- **Remaining-quota reader.** A card at the sidebar foot, directly beside Settings, shows either a monthly plan's allowance — read from the console with a dashboard token — or the pay-as-you-go wallet read with the same key chat uses.
 - **Live settings.** API key, endpoint, fast mode, and the sidebar switch are editable from DSH Settings and apply to the next request without a restart.
 
 -----
@@ -79,6 +79,8 @@ Open **DSH Settings → NowCoding**. The page reaches the Host through the plugi
 | Fast mode | off | Send `service_tier` on every fast-capable model. |
 | Fast tier value | `priority` | Wire spelling: `priority` (the pre-rename spelling, safest on a gateway that predates it) or `fast`. |
 | Sidebar balance card | on | Show the remaining-quota card above Settings in the left sidebar. |
+| Panel user ID | (blank) | Dashboard user id, sent as `New-Api-User`. Required by the console chain that reports a monthly plan. |
+| Panel access token | (blank) | Dashboard token from the console's system-access-token page. Only it can read a plan's allowance, because the console chain rejects the `sk-` key. Blank leaves the card on the pay-as-you-go wallet. |
 
 Every field also exists as a composition field, so a profile can pin only what it needs and let the settings layer override the rest:
 
@@ -133,18 +135,30 @@ Fast is independent of reasoning level: `reasoningEffort` travels separately as 
 
 ## Remaining quota
 
-The gateway is a new-api deployment, so an API key alone can read the OpenAI-compatible billing pair, behind the same authentication as `/v1/models`:
+The gateway reports two different balances on two different authentication chains, and which one matters depends on how you pay.
+
+**A monthly plan** is what the gateway's own console shows. It is read from the console API:
+
+```
+GET {origin}/api/subscription/self   Authorization: Bearer <dashboard token>, New-Api-User: <user id>
+GET {origin}/api/status              public; supplies quota_per_unit
+```
+
+The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore takes a second credential on its settings page: the dashboard user id and an access token from the console's system-access-token page. With both set, the card shows the plan's allowance and its consumption against it, matching the console.
+
+Amounts in that document are **raw quota units**, not currency: a displayed amount is `raw / quota_per_unit`, and `quota_per_unit` (500000 on this deployment) comes from the public status document. The reader divides by the value the gateway reports and records the divisor in every snapshot, so a wrong one is visible rather than silent.
+
+**A pay-as-you-go wallet** needs only the model key, and is read from the OpenAI-compatible billing pair behind the same authentication as `/v1/models`:
 
 ```
 GET {baseURL}/dashboard/billing/subscription   ->  { soft_limit_usd, hard_limit_usd, access_until, ... }
 GET {baseURL}/dashboard/billing/usage          ->  { total_usage, ... }
 ```
 
-Three properties of that pair are easy to get wrong, and the plugin handles them so you do not have to:
+Two properties of that pair are easy to get wrong, and the plugin handles them so you do not have to:
 
-- **`soft_limit_usd` is the granted total, not the remaining balance.** The gateway fills it from the license total. Remaining is `soft_limit_usd - total_usage / 100`.
-- **`total_usage` is in hundredths.** It is cents of the display currency, so it is divided by 100.
-- **The `*_usd` fields carry the display currency, which is CNY here.** The names are a compatibility leftover from the OpenAI billing shape. The card labels the amounts in `¥` for that reason; reading them as dollars overstates a balance by the exchange rate.
+- **`soft_limit_usd` is the granted total, not the remaining balance.** Remaining is `soft_limit_usd - total_usage / 100`.
+- **`total_usage` is in hundredths, and the `*_usd` fields carry the display currency, which is CNY here.** The names are a compatibility leftover from the OpenAI billing shape; the card labels amounts in `¥`, because reading them as dollars overstates a balance by the exchange rate.
 
 A key with no quota limit reports the gateway's unlimited sentinel instead of a grant; the card shows "unlimited" rather than a balance computed against it.
 
@@ -217,7 +231,7 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 - **The catalog is a snapshot.** It is dated in `src/catalog.ts` and corrected by configuration rather than by a release; nothing in the adapter assumes the list is current.
 - **Fast mode cannot be verified from outside.** Whether a channel forwards `service_tier` is a management-side setting; the plugin can send the field and report the echoed tier, and nothing more.
 - **The balance is key-scoped or account-scoped depending on a hidden switch.** new-api can report either the API key's own quota or the account's, chosen by a server setting the gateway does not publish. The card labels what it read without claiming which one it is.
-- **Subscription (monthly-plan) balances are not read.** They live behind the panel API (`/api/subscription/self`), which needs a dashboard access token rather than the API key, and whose failures answer HTTP 200 with `success: false`.
+- **A subscription balance needs a second credential.** The console chain rejects the model key, so the plugin takes a dashboard user id and access token; without them the card reports the pay-as-you-go wallet instead. Other console APIs are out of scope.
 - **No account rotation.** One key per route; a second account is a second profile or a second environment variable.
 
 ## License
