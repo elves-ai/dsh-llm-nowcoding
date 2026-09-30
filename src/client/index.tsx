@@ -20,12 +20,7 @@
 import type { ReactElement } from 'react'
 import { NowCodingQuotaCard } from './NowCodingQuotaCard.tsx'
 import { NowCodingDetailPage } from './NowCodingDetailPage.tsx'
-
-/**
- * The package name the Plugins page keys this bundle's detail-page seat by —
- * the same string the Loader row's `name` and the package.json declare.
- */
-const PACKAGE_NAME = '@elves-ai/dsh-llm-nowcoding'
+import { NOWCODING_PACKAGE_NAME } from './package.ts'
 
 /**
  * The slots operations this plugin calls, declared structurally: importing the
@@ -64,7 +59,7 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('plugins.bundle.config', () => {
     ctx.slots.register({
       name: 'plugins.bundle.config',
-      key: PACKAGE_NAME,
+      key: NOWCODING_PACKAGE_NAME,
     }, (owner) => {
       // The host's contract renders a bundle's configuration with
       // `view: 'page'` only; `summary` is other seats' one-liner view. An

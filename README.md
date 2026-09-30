@@ -26,7 +26,7 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 - **Built-in model catalog.** The models the gateway publishes are shipped in the plugin, with context windows, output caps, input modalities, reasoning levels, and fast-tier capability. A `models` list replaces it; `modelOverrides` reshapes single entries; nothing about the catalog is compiled into the adapter.
 - **GPT fast mode.** Fast-capable GPT models get a second picker entry (`gpt-5.6-sol-fast`) that sends the same wire model with `service_tier`; a route default turns it on for every fast-capable model. See [Fast mode](#fast-mode) for the caveat that actually decides whether it takes effect.
 - **Selectable reasoning levels.** Each model declares the levels its picker offers and the spelling the request sends, so the level ids never leak into the wire format.
-- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, and the sidebar switch, plus a balance block with a manual refresh. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
+- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, and the sidebar switch, plus a balance block with a manual refresh and a self-update card. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
 - **Remaining-quota reader.** A card at the sidebar foot, directly beside Settings, shows either a monthly plan's allowance — read from the console with a dashboard token — or the pay-as-you-go wallet read with the same key chat uses.
 - **Live settings.** API key, endpoint, fast mode, and the sidebar switch are editable on the detail page and apply to the next request without a restart.
 
@@ -196,6 +196,10 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 5. **Sign-in fills the console credential.** On the detail page, the sign-in block with the account name and password writes Panel user ID and Panel access token and switches the balance to the plan's allowance. A refused password reports so in Chinese; a deployment with Turnstile on reports that instead.
 
 ## Update
+
+The detail page carries an update card that updates the plugin in place, through the public update API v1 the **dsh-market** plugin exposes on the same Host: one cached check on open, a forced re-check button, a one-click update with live install progress, and the page reload or Host restart the outcome asks for. It works for this plugin's git install too — the market compares a `github:` source against the repository's current HEAD. Discovery is the feature gate: without dsh-market (or with a version that ships no update API) the card renders the manual command below instead of controls, and it never spawns a package manager itself.
+
+When the card is unavailable, update from a terminal:
 
 ```sh
 dsh plugin --profile web update @elves-ai/dsh-llm-nowcoding

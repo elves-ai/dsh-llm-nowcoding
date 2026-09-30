@@ -216,3 +216,30 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+.meter {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dsw-line-secondary, #2a2a35);
+  overflow: hidden;
+}
+
+.meterFill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--dsw-brand, #4f7cff);
+  transition: width 0.4s ease;
+}
+
+.command {
+  align-self: flex-start;
+  margin: 2px 0 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, #1b1b24);
+  color: var(--dsw-text-primary, #f2f2f5);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

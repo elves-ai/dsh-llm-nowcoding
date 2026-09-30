@@ -7,7 +7,9 @@
  * The page holds every control the plugin configures: API key (write-only,
  * blank keeps the current one, explicit clear), Base URL, the GPT fast switch
  * with its `allow_service_tier` caveat, the wire spelling, the sidebar-card
- * switch, the console sign-in, and a quota block with an explicit refresh.
+ * switch, the console sign-in, a quota block with an explicit refresh, and an
+ * update card that drives this plugin's own update through dsh-market's
+ * public update API (`./market-update.ts`).
  *
  * No shell import: the component takes no props (the seat passes `view` only)
  * and every control is plain HTML styled by the CSS module, so the bundle pins
