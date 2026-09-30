@@ -86,8 +86,6 @@ export interface NowCodingSettingsView {
   fastServiceTier?: NowCodingFastServiceTier
   /** Show the remaining-quota card at the sidebar foot. */
   quotaCard?: boolean
-  /** Dashboard user id sent as `New-Api-User`; the panel token itself never rides a response. */
-  panelUserId?: string
 }
 
 /** One path-addressed settings edit sent to the Host route. */
@@ -252,7 +250,6 @@ export function settingsViewOf(envelope: NowCodingSettingsEnvelope): NowCodingSe
     ...typeof value.fast === 'boolean' ? { fast: value.fast } : {},
     ...tier === 'priority' || tier === 'fast' ? { fastServiceTier: tier } : {},
     ...typeof value.quotaCard === 'boolean' ? { quotaCard: value.quotaCard } : {},
-    ...typeof value.panelUserId === 'string' ? { panelUserId: value.panelUserId } : {},
   }
 }
 
@@ -262,21 +259,22 @@ export function isNowCodingApiKeyConfigured(envelope: NowCodingSettingsEnvelope)
 }
 
 /**
- * True when the write-only `panelToken` slot currently holds a value.
- * @param envelope - a settings envelope.
- * @returns whether a dashboard token is stored.
- */
-export function isNowCodingPanelTokenConfigured(envelope: NowCodingSettingsEnvelope): boolean {
-  return secretSet(envelope, 'panelToken')
-}
-
-/**
  * True when the write-only `panelSession` slot currently holds a value.
  * @param envelope - a settings envelope.
  * @returns whether a sign-in session cookie is stored.
  */
 export function isNowCodingPanelSessionConfigured(envelope: NowCodingSettingsEnvelope): boolean {
   return secretSet(envelope, 'panelSession')
+}
+
+/**
+ * Notify the shared listeners after a settings change that did not go through
+ * {@link mutateNowCodingSettings} — a Host-side write such as a sign-in's
+ * credential. The sidebar card and the detail page share this module, so the
+ * card re-reads the moment a sign-in lands instead of waiting out its tick.
+ */
+export function notifyNowCodingSettingsCommitted(): void {
+  for (const listener of committedListeners) listener()
 }
 
 /** Whether one top-level secret slot holds a value. */

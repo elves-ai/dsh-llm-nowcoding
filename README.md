@@ -26,7 +26,7 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 - **Built-in model catalog.** The models the gateway publishes are shipped in the plugin, with context windows, output caps, input modalities, reasoning levels, and fast-tier capability. A `models` list replaces it; `modelOverrides` reshapes single entries; nothing about the catalog is compiled into the adapter.
 - **GPT fast mode.** Fast-capable GPT models get a second picker entry (`gpt-5.6-sol-fast`) that sends the same wire model with `service_tier`; a route default turns it on for every fast-capable model. See [Fast mode](#fast-mode) for the caveat that actually decides whether it takes effect.
 - **Selectable reasoning levels.** Each model declares the levels its picker offers and the spelling the request sends, so the level ids never leak into the wire format.
-- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, and the sidebar switch, plus a balance block with a manual refresh and a self-update card. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
+- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, the sidebar switch, the console sign-in, and a balance block with a manual refresh. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
 - **Remaining-quota reader.** A card at the sidebar foot, directly beside Settings, shows either a monthly plan's allowance — read from the console with a dashboard token or the session cookie an account sign-in answers — or the pay-as-you-go wallet read with the same key chat uses.
 - **Live settings.** API key, endpoint, fast mode, and the sidebar switch are editable on the detail page and apply to the next request without a restart.
 
@@ -55,7 +55,7 @@ pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 Append `#<ref>` to pin a tag or a commit, which is what a reproducible profile wants:
 
 ```sh
-dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.1
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.2
 ```
 
 `dsh plugin` forwards to pnpm inside the profile directory and appends the package to the profile's bundle list automatically. The bundle patch mounts the `llm-nowcoding` row with `apiKeyEnv: NOWCODING_API_KEY`, so an environment variable works before anything is configured.
@@ -79,8 +79,8 @@ Open the sidebar's **Plugins** page and click **NowCoding**. The page reaches th
 | Fast mode | off | Send `service_tier` on every fast-capable model. |
 | Fast tier value | `priority` | Wire spelling: `priority` (the pre-rename spelling, safest on a gateway that predates it) or `fast`. |
 | Sidebar balance card | on | Show the remaining-quota card above Settings in the left sidebar. |
-| Panel user ID | (blank) | Dashboard user id, sent as `New-Api-User`. Required by the console chain that reports a monthly plan, beside the token or the sign-in session alike. Signing in fills it. |
-| Panel access token | (blank) | Dashboard token from the console's system-access-token page. The console chain rejects the `sk-` key, so a plan's allowance needs this token or a sign-in session. Blank leaves the card on the pay-as-you-go wallet. Signing in stores the session and reads this token when the account has one. |
+| Panel user ID | written by sign-in | Dashboard user id sent as `New-Api-User`; the console chain needs it beside the token or the sign-in session alike. The page no longer offers manual entry, and sign-in writes it; a profile can still pin the value. |
+| Panel access token | written by sign-in | Dashboard token from the console's system-access-token page. The console chain rejects the `sk-` key, so a plan's allowance needs this token or a sign-in session. The page no longer offers manual entry: sign-in stores the session and reads this token when the account has one. |
 
 Every field also exists as a composition field, so a profile can pin only what it needs and let the settings layer override the rest:
 
@@ -144,7 +144,7 @@ GET {origin}/api/subscription/self   Bearer <dashboard token> or Cookie: <sign-i
 GET {origin}/api/status              public; supplies quota_per_unit
 ```
 
-The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore takes a console credential on its detail page: the dashboard user id, plus either an access token from the console's system-access-token page or the session cookie an account sign-in answers with. Both credentials need the user id beside them; when both are configured the token is tried first and the session takes over when the token is refused. With any working pair, the card shows the plan's allowance and its consumption against it, matching the console.
+The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore needs a console credential: the dashboard user id, plus either an access token from the console's system-access-token page or the session cookie an account sign-in answers with. Both credentials need the user id beside them; when both are configured the token is tried first and the session takes over when the token is refused. With any working pair, the card shows the plan's allowance and its consumption against it, matching the console.
 
 ### Signing in instead of copying the token
 
@@ -163,7 +163,7 @@ The session is the credential the console's own browser uses, and the plugin kee
 
 Three things worth knowing before you rely on it:
 
-- **Turnstile stops it.** `GET /api/status` reports `turnstile_check`, which is off on this deployment. With it on, only a browser can answer the challenge; the sign-in reports `turnstile-required` and points you at the manual field.
+- **Turnstile stops it.** `GET /api/status` reports `turnstile_check`, which is off on this deployment. With it on, only a browser can answer the challenge, and the sign-in reports `turnstile-required`.
 - **2FA is supported.** An account with an authenticator app gets a second step in the same block, and the half-finished session lives in the Host for five minutes.
 - **Signing in is not a model key.** The console credential reads a plan's allowance; chat requests still need an `sk-` key from the console's token page.
 
@@ -197,9 +197,7 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 
 ## Update
 
-The detail page carries an update card that updates the plugin in place, through the public update API v1 the **dsh-market** plugin exposes on the same Host: one cached check on open, a forced re-check button, a one-click update with live install progress, and the page reload or Host restart the outcome asks for. It works for this plugin's git install too — the market compares a `github:` source against the repository's current HEAD. Discovery is the feature gate: without dsh-market (or with a version that ships no update API) the card renders the manual command below instead of controls, and it never spawns a package manager itself. On the official desktop app the market reports `runtime: "desktop"` and the card switches to a pointer at the app's own **Settings → Plugins** — the app owns its profile there, so every in-page mutation is refused no matter what `features.update` says.
-
-When the card is unavailable, update from a terminal:
+The page carries no update feature: updating the plugin is the app's Plugins page's job (re-adding the same `github:` source there re-resolves it), or outside the app, the CLI:
 
 ```sh
 dsh plugin --profile web update @elves-ai/dsh-llm-nowcoding
@@ -212,7 +210,7 @@ dsh plugin --profile web remove @elves-ai/dsh-llm-nowcoding
 dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 ```
 
-Restart `dsh web` afterwards, then hard-refresh. Replace `web` with another profile name if you installed elsewhere.
+Restart the Host afterwards, then hard-refresh. Replace `web` with another profile name if you installed elsewhere.
 
 ## Uninstall
 
@@ -258,11 +256,10 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 - **The catalog is a snapshot.** It is dated in `src/catalog.ts` and corrected by configuration rather than by a release; nothing in the adapter assumes the list is current.
 - **Fast mode cannot be verified from outside.** Whether a channel forwards `service_tier` is a management-side setting; the plugin can send the field and report the echoed tier, and nothing more.
 - **The balance is key-scoped or account-scoped depending on a hidden switch.** new-api can report either the API key's own quota or the account's, chosen by a server setting the gateway does not publish. The card labels what it read without claiming which one it is.
-- **A subscription balance needs a console credential.** The console chain rejects the model key, so the plugin takes a dashboard user id plus an access token or a sign-in session, obtained by signing in or pasted by hand; without either the card reports the pay-as-you-go wallet instead. Other console APIs are out of scope.
+- **A subscription balance needs a console credential.** The console chain rejects the model key, so the plugin takes a dashboard user id plus an access token or a sign-in session, written by sign-in or pinned through configuration; without either the card reports the pay-as-you-go wallet instead. Other console APIs are out of scope.
 - **The sign-in session expires on the console's clock.** It is the credential the console's own browser holds; when the console retires it the card reports a rejected credential until you sign in again. The access token, when the account has one, is the fallback that does not expire.
 - **Sign-in is a password login, not OAuth.** The gateway can offer GitHub, LinuxDO, WeChat, Telegram, and OIDC sign-in; all are off on this deployment, and an OAuth flow would need a browser redirect this plugin cannot host. Username and password, plus 2FA, is the supported path.
 - **A Turnstile deployment cannot be signed into from here.** Only a browser can solve the challenge; the manual token field remains the way in.
-- **In-page updates do not run on the official desktop app.** The app owns its `desktop` profile and the market refuses every mutation against it; the update card detects that via the market's `runtime` report and points at the app's **Settings → Plugins** instead.
 - **Client copy is inline Chinese.** The Harness expects product copy in typed locale dictionaries, which needs `@deepseek-ai/dsh-client-locale` and a locale registration; that is later work.
 - **No account rotation.** One key per route; a second account is a second profile or a second environment variable.
 

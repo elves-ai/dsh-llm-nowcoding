@@ -80,8 +80,6 @@ export interface NowCodingSettingsView {
     fastServiceTier?: NowCodingFastServiceTier;
     /** Show the remaining-quota card at the sidebar foot. */
     quotaCard?: boolean;
-    /** Dashboard user id sent as `New-Api-User`; the panel token itself never rides a response. */
-    panelUserId?: string;
 }
 /** One path-addressed settings edit sent to the Host route. */
 export type NowCodingSettingsOp = {
@@ -162,14 +160,15 @@ export declare function settingsViewOf(envelope: NowCodingSettingsEnvelope): Now
 /** True when the write-only `apiKey` slot currently holds a value. */
 export declare function isNowCodingApiKeyConfigured(envelope: NowCodingSettingsEnvelope): boolean;
 /**
- * True when the write-only `panelToken` slot currently holds a value.
- * @param envelope - a settings envelope.
- * @returns whether a dashboard token is stored.
- */
-export declare function isNowCodingPanelTokenConfigured(envelope: NowCodingSettingsEnvelope): boolean;
-/**
  * True when the write-only `panelSession` slot currently holds a value.
  * @param envelope - a settings envelope.
  * @returns whether a sign-in session cookie is stored.
  */
 export declare function isNowCodingPanelSessionConfigured(envelope: NowCodingSettingsEnvelope): boolean;
+/**
+ * Notify the shared listeners after a settings change that did not go through
+ * {@link mutateNowCodingSettings} — a Host-side write such as a sign-in's
+ * credential. The sidebar card and the detail page share this module, so the
+ * card re-reads the moment a sign-in lands instead of waiting out its tick.
+ */
+export declare function notifyNowCodingSettingsCommitted(): void;

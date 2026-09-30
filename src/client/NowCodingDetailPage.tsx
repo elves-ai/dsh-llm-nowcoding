@@ -7,9 +7,10 @@
  * The page holds every control the plugin configures: API key (write-only,
  * blank keeps the current one, explicit clear), Base URL, the GPT fast switch
  * with its `allow_service_tier` caveat, the wire spelling, the sidebar-card
- * switch, the console sign-in, a quota block with an explicit refresh, and an
- * update card that drives this plugin's own update through dsh-market's
- * public update API (`./market-update.ts`).
+ * switch, the console sign-in, and a quota block with an explicit refresh.
+ * The console credential is the sign-in's alone — the page carries no manual
+ * token fields — and it carries no update feature either: updating is the
+ * app's Plugins page's or `dsh plugin update`'s job.
  *
  * No shell import: the component takes no props (the seat passes `view` only)
  * and every control is plain HTML styled by the CSS module, so the bundle pins
@@ -18,7 +19,7 @@
  * @module @elves-ai/dsh-llm-nowcoding/client/NowCodingDetailPage
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useState, type ReactElement } from 'react'
 import {
   NOWCODING_DEFAULT_BASE_URL,
   NOWCODING_SETTINGS_DEFAULTS,
@@ -30,8 +31,8 @@ import {
   getQuota,
   isNowCodingApiKeyConfigured,
   isNowCodingPanelSessionConfigured,
-  isNowCodingPanelTokenConfigured,
   mutateNowCodingSettings,
+  notifyNowCodingSettingsCommitted,
   panelLogin,
   panelTwoFactorLogin,
   settingsViewOf,
@@ -41,25 +42,14 @@ import {
   type NowCodingSettingsOp,
 } from './api.ts'
 import css from './NowCodingDetailPage.module.css'
-import {
-  MarketUpdateApiError,
-  marketUpdate,
-  type MarketUpdateCapabilities,
-  type MarketUpdateCheck,
-  type MarketUpdateFailure,
-  type MarketUpdateOperation,
-} from './market-update.ts'
-import { NOWCODING_PACKAGE_NAME } from './package.ts'
 
-/** Local drafts for the five editable controls. */
+/** Local drafts for the editable controls. */
 interface Drafts {
   apiKey: string
   baseURL: string
   fast: boolean
   fastServiceTier: NowCodingFastServiceTier
   quotaCard: boolean
-  panelUserId: string
-  panelToken: string
 }
 
 const INITIAL_DRAFTS: Drafts = {
@@ -68,8 +58,6 @@ const INITIAL_DRAFTS: Drafts = {
   fast: NOWCODING_SETTINGS_DEFAULTS.fast,
   fastServiceTier: NOWCODING_SETTINGS_DEFAULTS.fastServiceTier,
   quotaCard: NOWCODING_SETTINGS_DEFAULTS.quotaCard,
-  panelUserId: '',
-  panelToken: '',
 }
 
 /** The two wire spellings of the fast tier, in presentation order. */
@@ -87,9 +75,6 @@ function draftsOf(envelope: NowCodingSettingsEnvelope): Drafts {
     fast: typeof view.fast === 'boolean' ? view.fast : NOWCODING_SETTINGS_DEFAULTS.fast,
     fastServiceTier: view.fastServiceTier ?? NOWCODING_SETTINGS_DEFAULTS.fastServiceTier,
     quotaCard: typeof view.quotaCard === 'boolean' ? view.quotaCard : NOWCODING_SETTINGS_DEFAULTS.quotaCard,
-    panelUserId: view.panelUserId ?? '',
-    // Write-only: the stored token never rides a response, so the draft starts blank.
-    panelToken: '',
   }
 }
 
@@ -138,59 +123,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Stable update-failure codes whose fix is a force retry, per the market's contract. */
-const FORCEABLE_UPDATE_CODES = new Set(['RELEASE_TOO_FRESH', 'VERSION_UNCHANGED'])
-
-/** Poll cadence and patience for one running update operation. */
-const UPDATE_POLL_INTERVAL_MS = 1500
-const UPDATE_POLL_MAX_FAILURES = 3
-const UPDATE_POLL_MAX_MS = 10 * 60 * 1000
-
-/** Chinese copy for one update failure, by the market's stable codes. */
-function updateFailureText(failure: MarketUpdateFailure): string {
-  switch (failure.code) {
-    case 'OPERATION_BUSY':
-      return '市场正在执行另一个安装或更新操作，请稍后重试。'
-    case 'AGENTS_RUNNING':
-      return '有会话正在运行，市场暂缓了这次更新；请稍后重试。'
-    case 'RELEASE_TOO_FRESH':
-      return '新版本发布时间太近，市场按发布冷却策略暂缓安装；可稍后重试，或用强制更新跳过等待。'
-    case 'VERSION_UNCHANGED':
-      return '更新源没有发现新的版本；如果确要重装，可使用强制更新。'
-    case 'UPDATE_TIMEOUT':
-      return '更新操作超时，请重试。'
-    case 'RESOLVED_VERSION_MISMATCH':
-      return '实际安装的版本低于预期目标（源或镜像尚未同步），市场已回滚；请稍后重试。'
-    case 'DOWNGRADE_DETECTED':
-      return '目标版本比当前已安装的更旧，市场拒绝了这次更新。'
-    case 'UPDATE_FORBIDDEN':
-      return '当前环境不允许执行这次更新。'
-    case 'PLUGIN_NOT_INSTALLED':
-      return '插件不在当前 profile 的安装清单里，无法通过市场更新。'
-    case 'MARKET_UNREACHABLE':
-      return '无法连接 dsh-market 的更新接口，请稍后重试。'
-    case 'OPERATION_LOST':
-      return '更新操作记录已不存在（Host 可能重启过）；请用「检查更新」确认当前版本。'
-    default:
-      return failure.message
-  }
-}
-
-/** Normalize any thrown value into the failure shape the card renders. */
-function updateFailureOf(error: unknown): MarketUpdateFailure {
-  if (error instanceof MarketUpdateApiError) {
-    return { code: error.code, message: error.message, retryable: error.retryable }
-  }
-  return { code: 'UPDATE_FAILED', message: error instanceof Error ? error.message : String(error), retryable: false }
-}
-
-/** Label for the install source a check reports. */
-function updateSourceLabel(source: string | null): string {
-  if (source === 'github') return 'GitHub'
-  if (source === 'npm') return 'npm'
-  return source ?? ''
-}
-
 /**
  * Render the NowCoding detail page.
  * @returns the page element tree.
@@ -203,7 +135,6 @@ export function NowCodingDetailPage(): ReactElement | null {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [showApiKey, setShowApiKey] = useState(false)
-  const [showPanelToken, setShowPanelToken] = useState(false)
   const [quota, setQuota] = useState<NowCodingQuotaView | null>(null)
   const [quotaLoading, setQuotaLoading] = useState(false)
   const [quotaError, setQuotaError] = useState<string | null>(null)
@@ -281,6 +212,9 @@ export function NowCodingDetailPage(): ReactElement | null {
     const sessionNote = view.tokenSource === undefined ? '未读到访问令牌，订阅余量将通过登录会话读取。' : ''
     setLoginNotice(`已登录 ${view.username}（用户 ID ${view.userId}），登录会话与用户 ID 已写入配置。${sessionNote}`)
     void refreshQuota()
+    // The sign-in's credential is written Host-side, so no settings commit
+    // event crosses to the other mounts; tell the sidebar card directly.
+    notifyNowCodingSettingsCommitted()
   }
 
   /** Exchange the account credentials for the console credential pair. */
@@ -330,119 +264,7 @@ export function NowCodingDetailPage(): ReactElement | null {
     ops.push({ op: 'set', path: ['fast'], value: drafts.fast })
     ops.push({ op: 'set', path: ['fastServiceTier'], value: drafts.fastServiceTier })
     ops.push({ op: 'set', path: ['quotaCard'], value: drafts.quotaCard })
-    const panelUserId = drafts.panelUserId.trim()
-    if (panelUserId === '') ops.push({ op: 'unset', path: ['panelUserId'] })
-    else ops.push({ op: 'set', path: ['panelUserId'], value: panelUserId })
-    // Blank means "keep the stored token"; Clear is the only way to remove it.
-    const panelToken = drafts.panelToken.trim()
-    if (panelToken !== '') ops.push({ op: 'set', path: ['panelToken'], value: panelToken })
     void applyOps(ops)
-  }
-
-  // ---- The update card. Discovery is the feature gate: without the market's
-  // public API the card degrades to the manual command, by that contract's
-  // own compatibility policy. On the official desktop app the market reports
-  // `runtime: "desktop"` while still offering `features.update: true` — the
-  // mutation itself refuses there, because the app owns its profile, so the
-  // button is hidden and the app's own Plugins page is the way in.
-
-  const [updateCapsState, setUpdateCapsState] = useState<'loading' | 'absent' | 'ready'>('loading')
-  const [updateCaps, setUpdateCaps] = useState<MarketUpdateCapabilities | null>(null)
-  const [updateCheck, setUpdateCheck] = useState<MarketUpdateCheck | null>(null)
-  const [updateChecking, setUpdateChecking] = useState(false)
-  const [updateCheckError, setUpdateCheckError] = useState<MarketUpdateFailure | null>(null)
-  const [updateOp, setUpdateOp] = useState<MarketUpdateOperation | null>(null)
-  const [updateError, setUpdateError] = useState<MarketUpdateFailure | null>(null)
-  const [updateNotice, setUpdateNotice] = useState<string | null>(null)
-  const [restarting, setRestarting] = useState(false)
-  const updatePollFailures = useRef(0)
-  const updateStartedAt = useRef(0)
-
-  const refreshUpdateCheck = useCallback(async (force: boolean): Promise<void> => {
-    setUpdateChecking(true)
-    setUpdateCheckError(null)
-    try {
-      setUpdateCheck(await marketUpdate.check(force))
-    } catch (caught) {
-      setUpdateCheck(null)
-      setUpdateCheckError(updateFailureOf(caught))
-    } finally {
-      setUpdateChecking(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    void marketUpdate.discover().then((caps) => {
-      if (cancelled) return
-      if (caps === null || !caps.canCheck) {
-        setUpdateCapsState('absent')
-        return
-      }
-      setUpdateCaps(caps)
-      setUpdateCapsState('ready')
-      // One cached check so the card opens with the current posture.
-      void refreshUpdateCheck(false)
-    })
-    return () => { cancelled = true }
-  }, [refreshUpdateCheck])
-
-  // Drive a running operation by polling; a few consecutive transport
-  // failures are tolerated, then the card reports and stops.
-  useEffect(() => {
-    if (updateOp === null || (updateOp.state !== 'queued' && updateOp.state !== 'running')) return
-    if (Date.now() - updateStartedAt.current > UPDATE_POLL_MAX_MS) {
-      setUpdateOp(null)
-      setUpdateNotice('更新操作耗时较长，页面停止等待；稍后可用「检查更新」确认结果。')
-      return
-    }
-    const timer = window.setTimeout(() => {
-      void marketUpdate.poll(updateOp.operationId).then((next) => {
-        updatePollFailures.current = 0
-        setUpdateOp(next)
-      }).catch((caught: unknown) => {
-        updatePollFailures.current += 1
-        if (updatePollFailures.current >= UPDATE_POLL_MAX_FAILURES) {
-          setUpdateError(updateFailureOf(caught))
-          setUpdateOp(null)
-        }
-      })
-    }, UPDATE_POLL_INTERVAL_MS)
-    return () => { window.clearTimeout(timer) }
-  }, [updateOp])
-
-  const startUpdate = async (force: boolean): Promise<void> => {
-    setUpdateError(null)
-    setUpdateNotice(null)
-    setUpdateCheckError(null)
-    updatePollFailures.current = 0
-    updateStartedAt.current = Date.now()
-    try {
-      setUpdateOp(await marketUpdate.start(force))
-    } catch (caught) {
-      setUpdateError(updateFailureOf(caught))
-    }
-  }
-
-  const restartHost = async (): Promise<void> => {
-    setRestarting(true)
-    setUpdateError(null)
-    try {
-      await marketUpdate.restart()
-    } catch (caught) {
-      setRestarting(false)
-      setUpdateError(updateFailureOf(caught))
-      return
-    }
-    // The Host is on its way down; give the replacement a moment, then load it.
-    window.setTimeout(() => { window.location.reload() }, 2500)
-  }
-
-  const backToCheck = (): void => {
-    setUpdateOp(null)
-    setUpdateError(null)
-    setUpdateNotice(null)
-    void refreshUpdateCheck(true)
   }
 
   if (loading) return <div className={css.section}><p className={css.hint}>正在加载 NowCoding 配置…</p></div>
@@ -456,137 +278,9 @@ export function NowCodingDetailPage(): ReactElement | null {
   }
 
   const configured = isNowCodingApiKeyConfigured(envelope)
-  const panelConfigured = isNowCodingPanelTokenConfigured(envelope)
   const panelSessionConfigured = isNowCodingPanelSessionConfigured(envelope)
   const disabled = envelope.writable === false || saving
   const snapshot = quota === null ? null : quota.snapshot
-
-  /** The operation view: progress while running, outcome and next steps after. */
-  const renderUpdateOperation = (op: MarketUpdateOperation): ReactElement => {
-    if (op.state === 'queued' || op.state === 'running') {
-      const percent = op.percent === null ? null : Math.min(100, Math.max(4, Math.round(op.percent)))
-      return (
-        <div className={css.row}>
-          <div className={css.rowText}>
-            <span className={css.title}>正在更新{op.installedVersion !== null && op.installedVersion !== op.beforeVersion ? `：${op.beforeVersion ?? '…'} → ${op.installedVersion}` : '…'}</span>
-            <span className={css.desc}>{[op.phase ?? '准备中', percent === null ? null : `${String(percent)}%`, op.detail].filter(Boolean).join(' · ')}</span>
-            <span className={css.meter}><span className={css.meterFill} style={{ width: percent === null ? '40%' : `${String(percent)}%` }} /></span>
-          </div>
-        </div>
-      )
-    }
-    if (op.state === 'succeeded') {
-      return (
-        <div className={css.row}>
-          <div className={css.rowText}>
-            <span className={css.title}>已更新{op.installedVersion !== null ? `到 ${op.installedVersion}` : ''}</span>
-            <span className={css.desc}>{op.refreshRequired
-              ? '浏览器需要重新加载才能运行新版本。'
-              : op.restartRequired
-                ? 'Host 需要重启才能加载新版本。'
-                : '更新完成。'}</span>
-          </div>
-          <div className={css.control}>
-            {op.restartRequired && !(updateCaps?.canRestart ?? false) && <span className={css.hint}>请手动重启 dsh web。</span>}
-            {op.restartRequired && (updateCaps?.canRestart ?? false) && !restarting && (
-              <button type="button" className={css.buttonPrimary} onClick={() => { void restartHost() }}>重启 Host</button>
-            )}
-            {op.refreshRequired && (
-              <button type="button" className={css.buttonPrimary} onClick={() => { window.location.reload() }}>刷新页面</button>
-            )}
-            {!op.refreshRequired && !op.restartRequired && (
-              <button type="button" className={css.button} onClick={backToCheck}>检查更新</button>
-            )}
-          </div>
-        </div>
-      )
-    }
-    if (op.state === 'failed') {
-      const failure = op.failure ?? { code: 'UPDATE_FAILED', message: '更新失败，原因未知。', retryable: false }
-      return (
-        <div className={css.row}>
-          <div className={css.rowText}>
-            <span className={css.title}>更新失败</span>
-            <span className={css.error} role="alert">{updateFailureText(failure)}</span>
-          </div>
-          <div className={css.control}>
-            {failure.retryable && (
-              <button type="button" className={css.button} onClick={() => { void startUpdate(false) }}>重试</button>
-            )}
-            {FORCEABLE_UPDATE_CODES.has(failure.code) && (
-              <button type="button" className={css.button} onClick={() => { void startUpdate(true) }}>强制更新</button>
-            )}
-            <button type="button" className={css.button} onClick={backToCheck}>返回</button>
-          </div>
-        </div>
-      )
-    }
-    return (
-      <div className={css.row}>
-        <div className={css.rowText}>
-          <span className={css.title}>{op.state === 'cancelled' ? '更新已取消' : '已回滚'}</span>
-          <span className={css.desc}>{op.state === 'cancelled' ? '这次更新没有完成。' : '已恢复到更新前的版本。'}</span>
-        </div>
-        <div className={css.control}>
-          <button type="button" className={css.button} onClick={backToCheck}>返回</button>
-        </div>
-      </div>
-    )
-  }
-
-  /** The check view: current version, and the update action when one exists. */
-  const renderUpdateCheckView = (): ReactElement => {
-    const desktopRuntime = updateCaps?.runtime === 'desktop'
-    return (
-    <>
-      <div className={css.row}>
-        <div className={css.rowText}>
-          <span className={css.title}>插件更新</span>
-          <span className={css.desc}>当前版本 {updateCheck?.installedVersion ?? '未知'}{updateCheck !== null && updateSourceLabel(updateCheck.source) !== '' ? ` · 来源 ${updateSourceLabel(updateCheck.source)}` : ''}</span>
-        </div>
-        <div className={css.control}>
-          <button type="button" className={css.button} disabled={updateChecking} onClick={() => { void refreshUpdateCheck(true) }}>
-            {updateChecking ? '检查中…' : '检查更新'}
-          </button>
-        </div>
-      </div>
-      {updateCheckError !== null && (
-        <div className={css.row}>
-          <div className={css.rowText}>
-            <span className={css.error} role="alert">{updateFailureText(updateCheckError)}</span>
-          </div>
-        </div>
-      )}
-      {updateCheckError === null && (updateCheck?.updateAvailable ?? false) && (desktopRuntime ? (
-        <div className={css.row}>
-          <div className={css.rowText}>
-            <span className={css.title}>有可用更新：{updateCheck?.installedVersion ?? '未知'} → {updateCheck?.latestVersion ?? '未知'}</span>
-            <span className={css.desc}>桌面端插件由应用自己管理，请在官方桌面客户端的「设置 → 插件」里完成更新；页面内的更新接口无法修改桌面 profile。</span>
-          </div>
-        </div>
-      ) : (
-        <div className={css.row}>
-          <div className={css.rowText}>
-            <span className={css.desc}>有可用更新：{updateCheck?.installedVersion ?? '未知'} → {updateCheck?.latestVersion ?? '未知'}</span>
-          </div>
-          <div className={css.control}>
-            {(updateCaps?.canUpdate ?? false) && (
-              <button type="button" className={css.buttonPrimary} onClick={() => { void startUpdate(false) }}>更新</button>
-            )}
-            {!(updateCaps?.canUpdate ?? false) && (
-              <span className={css.hint}>当前 dsh-market 版本不提供更新操作。</span>
-            )}
-          </div>
-        </div>
-      ))}
-      {updateError !== null && (
-        <div className={css.row}>
-          <p className={css.error} role="alert">{updateFailureText(updateError)}</p>
-        </div>
-      )}
-    </>
-    )
-  }
 
   return (
     <div className={css.section}>
@@ -711,70 +405,7 @@ export function NowCodingDetailPage(): ReactElement | null {
       </div>
 
       <div className={css.card}>
-        <p className={css.cardIntro}>订阅（月卡）余量需要控制台凭据：控制台接口不接受 sk- 开头的模型 Key。用下面的账号登录会把登录会话与用户 ID 写入配置，也可以手动填写访问令牌；两者都没有时，卡片显示按量余额。</p>
-
-        <div className={css.row}>
-          <div className={css.rowText}>
-            <label className={css.title} htmlFor="nowcoding-panel-user">面板用户 ID</label>
-            <span className={css.desc}>控制台里的数字用户 ID，连同面板令牌一起作为 New-Api-User 头发送。</span>
-          </div>
-          <div className={css.control}>
-            <input
-              id="nowcoding-panel-user"
-              className={css.input}
-              type="text"
-              autoComplete="off"
-              value={drafts.panelUserId}
-              placeholder="例如 8893"
-              disabled={disabled}
-              onChange={event => { setDrafts({ ...drafts, panelUserId: event.currentTarget.value }) }}
-            />
-          </div>
-        </div>
-
-        <div className={css.row}>
-          <div className={css.rowText}>
-            <label className={css.title} htmlFor="nowcoding-panel-token">面板访问令牌</label>
-            <span className={css.desc}>在控制台的系统访问令牌页生成，与登录会话二选一即可，读取订阅额度时优先使用它。不会回显；留空保存表示保持当前值。</span>
-          </div>
-          <div className={css.control}>
-            <input
-              id="nowcoding-panel-token"
-              className={css.input}
-              type={showPanelToken ? 'text' : 'password'}
-              autoComplete="off"
-              value={drafts.panelToken}
-              placeholder={panelConfigured ? '已配置（留空保持不变）' : '未配置'}
-              disabled={disabled}
-              onChange={event => { setDrafts({ ...drafts, panelToken: event.currentTarget.value }) }}
-            />
-            <button
-              type="button"
-              className={css.iconButton}
-              aria-label={showPanelToken ? '隐藏面板访问令牌' : '显示面板访问令牌'}
-              title={showPanelToken ? '隐藏面板访问令牌' : '显示面板访问令牌'}
-              disabled={disabled}
-              onClick={() => { setShowPanelToken(previous => !previous) }}
-            >
-              {showPanelToken ? '隐藏' : '显示'}
-            </button>
-            <span className={panelConfigured ? css.badgeOn : css.badgeOff}>{panelConfigured ? '已配置' : '未配置'}</span>
-            {panelConfigured && (
-              <button
-                type="button"
-                className={css.button}
-                disabled={disabled}
-                onClick={() => { void applyOps([{ op: 'unset', path: ['panelToken'] }]) }}
-              >
-                清除
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className={css.card}>
-        <p className={css.cardIntro}>用 NowCoding 账号登录，自动获取上面的控制台凭据：密码只随这一次登录请求发出、不写入配置，登录会话由 Host 直接写进配置、不回传浏览器，会话过期后重新登录一次即可。</p>
+        <p className={css.cardIntro}>用 NowCoding 账号登录即可获取订阅（月卡）余量所需的控制台凭据（控制台接口不接受 sk- 开头的模型 Key）：密码只随这一次登录请求发出、不写入配置，登录会话与用户 ID 由 Host 直接写进配置、不回传浏览器，会话过期后重新登录一次即可。</p>
 
         <div className={css.row}>
           <div className={css.rowText}>
@@ -837,8 +468,8 @@ export function NowCodingDetailPage(): ReactElement | null {
 
         <div className={css.row}>
           <div className={css.rowText}>
-            <span className={css.title}>获取面板凭据</span>
-            <span className={css.desc}>登录成功后订阅余量与按量余额立即可读。站方若开启 Turnstile 人机校验，这一步在插件里无法完成，请改用手动填写。</span>
+            <span className={css.title}>登录控制台</span>
+            <span className={css.desc}>登录成功后订阅余量与按量余额立即可读。站方若开启 Turnstile 人机校验，这一步在插件里无法完成。</span>
           </div>
           <div className={css.control}>
             {panelSessionConfigured && <span className={css.badgeOn}>已保存会话</span>}
@@ -891,38 +522,10 @@ export function NowCodingDetailPage(): ReactElement | null {
             )}
             {quotaError !== null && <p className={css.error} role="alert">{quotaError}</p>}
             {quotaError === null && snapshot === null && (
-              <p className={css.hint}>{quotaLoading ? '正在读取余量…' : '尚未配置 API Key：先在上方保存一个密钥，或让 Host 的 apiKeyEnv 指向一个环境变量。'}</p>
+              <p className={css.hint}>{quotaLoading ? '正在读取余量…' : '尚未配置凭据：在上方保存一个 API Key 或用账号登录，或让 Host 的 apiKeyEnv 指向一个环境变量。'}</p>
             )}
           </div>
         </div>
-      </div>
-
-      <div className={css.card}>
-        <p className={css.cardIntro}>插件更新经由 dsh-market 插件市场的公开更新接口完成：检查、下载与安装都在市场一侧执行；更新后按提示刷新页面或重启 Host。官方桌面客户端的插件由应用自己管理，页面内只做检查，更新请在「设置 → 插件」里完成。</p>
-        {updateCapsState === 'loading' && (
-          <div className={css.row}><p className={css.hint}>正在检测 dsh-market 插件市场…</p></div>
-        )}
-        {updateCapsState === 'absent' && (
-          <div className={css.row}>
-            <div className={css.rowText}>
-              <span className={css.title}>页面内更新不可用</span>
-              <span className={css.desc}>未检测到 dsh-market 插件市场，或其版本不提供更新接口。可在终端手动更新：</span>
-              <code className={css.command}>dsh plugin --profile &lt;profile&gt; update {NOWCODING_PACKAGE_NAME}</code>
-            </div>
-          </div>
-        )}
-        {updateCapsState === 'ready' && updateOp !== null && renderUpdateOperation(updateOp)}
-        {updateCapsState === 'ready' && updateOp === null && renderUpdateCheckView()}
-        {restarting && (
-          <div className={css.row}>
-            <p className={css.notice} role="status">Host 正在重启，页面将自动重新加载；若长时间未恢复，请手动刷新。</p>
-          </div>
-        )}
-        {updateNotice !== null && (
-          <div className={css.row}>
-            <p className={css.notice} role="status">{updateNotice}</p>
-          </div>
-        )}
       </div>
 
       {error !== null && <p className={css.error} role="alert">{error}</p>}

@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
-import { NowCodingApiError, getQuota, type NowCodingQuotaSnapshotView, type NowCodingQuotaView } from './api.ts'
+import { NowCodingApiError, getQuota, onNowCodingSettingsCommitted, type NowCodingQuotaSnapshotView, type NowCodingQuotaView } from './api.ts'
 import styles from './NowCodingQuotaCard.module.css'
 
 /** Refresh interval assumed until the Host reports its own. */
@@ -108,6 +108,12 @@ export function NowCodingQuotaCard(): ReactElement | null {
   }, [load])
 
   useEffect(() => {
+    // Re-read as soon as any surface commits a settings change — a sign-in's
+    // credential or a page save — instead of waiting out the refresh tick.
+    return onNowCodingSettingsCommitted(() => { void load() })
+  }, [load])
+
+  useEffect(() => {
     const timer = setInterval(() => { void load() }, refreshSeconds * 1_000)
     return () => { clearInterval(timer) }
   }, [load, refreshSeconds])
@@ -134,7 +140,7 @@ export function NowCodingQuotaCard(): ReactElement | null {
 
   const { snapshot, currency } = state.view
   if (snapshot === null) {
-    return <div className={styles.card} data-state="unconfigured">未配置 API Key</div>
+    return <div className={styles.card} data-state="unconfigured">未配置 API Key 或登录账号</div>
   }
 
   const low = isLow(snapshot)
