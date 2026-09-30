@@ -10,7 +10,7 @@
 /** User-settings namespace carrying the NowCoding provider configuration. */
 export declare const NOWCODING_SETTINGS_NAMESPACE = "llm-nowcoding";
 /** Settings fields editable from the NowCoding settings page. */
-export declare const NOWCODING_SETTINGS_FIELDS: readonly ["apiKey", "baseURL", "fast", "fastServiceTier", "quotaCard", "panelToken", "panelUserId"];
+export declare const NOWCODING_SETTINGS_FIELDS: readonly ["apiKey", "baseURL", "fast", "fastServiceTier", "quotaCard", "panelToken", "panelUserId", "panelSession"];
 /** One editable NowCoding settings field. */
 export type NowCodingSettingsField = typeof NOWCODING_SETTINGS_FIELDS[number];
 /** Default environment variable the plugin resolves the API key from. */
@@ -52,30 +52,34 @@ export declare const NOWCODING_STATUS_PATH = "/api/status";
  *
  * This is the console API, not the relay API: it reports the monthly plan's
  * allowance and its consumption against it, which is the figure the gateway's
- * own console shows. It authenticates with a dashboard access token plus the
- * `New-Api-User` header — the `sk-` model key is rejected on this chain.
+ * own console shows. It authenticates with a dashboard access token, or with
+ * the sign-in session cookie, plus the `New-Api-User` header either way — the
+ * `sk-` model key is rejected on this chain, and so is either credential
+ * without the header.
  */
 export declare const NOWCODING_SUBSCRIPTION_PATH = "/api/subscription/self";
 /**
  * Console sign-in, appended to the gateway origin.
  *
- * The console answers with the session cookie the access-token routes need.
- * The password is a parameter of this one request; nothing persists it.
+ * The console answers with the session cookie that becomes the persisted
+ * console credential. The password is a parameter of this one request; nothing
+ * persists it.
  */
 export declare const NOWCODING_LOGIN_PATH = "/api/user/login";
 /** Second sign-in step, taken only when the account has 2FA enabled. */
 export declare const NOWCODING_TWO_FACTOR_LOGIN_PATH = "/api/user/login/2fa";
+/**
+ * Site agreement confirmation, appended to the gateway origin.
+ *
+ * The console's own web app sends this right after a successful login, so
+ * sign-in mirrors it once per sign-in. It is best-effort: a refusal here is
+ * ignored and never fails the sign-in.
+ */
+export declare const NOWCODING_AGREEMENT_ACCEPT_PATH = "/api/agreement/accept?lang=zh-CN";
 /** Console account document; its `access_token` member is a token fallback. */
 export declare const NOWCODING_SELF_PATH = "/api/user/self";
 /** Reads the account's dashboard token without rotating it. */
 export declare const NOWCODING_SELF_ACCESS_TOKEN_PATH = "/api/user/self/access-token";
-/**
- * Issues a dashboard token, appended to the gateway origin.
- *
- * The console labels this action a reset and it rotates an existing token,
- * which is why sign-in reaches it only after both read routes came back empty.
- */
-export declare const NOWCODING_ACCESS_TOKEN_PATH = "/api/user/token";
 /**
  * Divisor assumed when the status document cannot be read.
  *
@@ -157,10 +161,21 @@ export interface NowCodingSettings {
     /**
      * Dashboard user id, sent as `New-Api-User`.
      *
-     * The console validates that header against the token's owner, so it is
-     * required wherever `panelToken` is.
+     * The console validates that header against the credential's owner — token
+     * or session cookie alike — so it is required wherever either is set.
      */
     panelUserId?: string;
+    /**
+     * Sign-in session cookie, the `session=...` pair the console answered the
+     * last account login with.
+     *
+     * Stored with `role('secret')` beside `panelToken`: it never rides a
+     * settings response. The console chain accepts it in place of the access
+     * token, which is how a sign-in alone — without a token read-back — unlocks
+     * the subscription balance. It expires when the console expires the session;
+     * signing in again refreshes it.
+     */
+    panelSession?: string;
 }
 /** Schema-default fallbacks used by the client while the settings route is unavailable. */
 export declare const NOWCODING_SETTINGS_DEFAULTS: {
@@ -171,4 +186,5 @@ export declare const NOWCODING_SETTINGS_DEFAULTS: {
     readonly quotaCard: true;
     readonly panelToken: "";
     readonly panelUserId: "";
+    readonly panelSession: "";
 };

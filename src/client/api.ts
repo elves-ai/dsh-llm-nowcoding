@@ -173,16 +173,17 @@ export type NowCodingLoginView =
     userId: string
     /** Account name, for the page's confirmation copy. */
     username: string
-    /** How the token was obtained; `generated` means any older token was rotated. */
-    tokenSource: 'login' | 'read' | 'generated'
+    /** How the token was obtained; absent when the sign-in stored only the session. */
+    tokenSource?: 'login' | 'read'
   }
 
 /**
  * Sign in with the account's NowCoding console credentials.
  *
  * The password rides this one request and is stored by neither half: the Host
- * exchanges it for the dashboard token it writes into the settings slot, and
- * the token never rides an answer back.
+ * exchanges it for the console credential — the sign-in session, plus the
+ * access token when one is readable — and writes that into the settings slots
+ * without ever sending it back.
  * @param username - console username.
  * @param password - console password.
  * @returns the sign-in answer, or a request for the second factor.
@@ -267,6 +268,15 @@ export function isNowCodingApiKeyConfigured(envelope: NowCodingSettingsEnvelope)
  */
 export function isNowCodingPanelTokenConfigured(envelope: NowCodingSettingsEnvelope): boolean {
   return secretSet(envelope, 'panelToken')
+}
+
+/**
+ * True when the write-only `panelSession` slot currently holds a value.
+ * @param envelope - a settings envelope.
+ * @returns whether a sign-in session cookie is stored.
+ */
+export function isNowCodingPanelSessionConfigured(envelope: NowCodingSettingsEnvelope): boolean {
+  return secretSet(envelope, 'panelSession')
 }
 
 /** Whether one top-level secret slot holds a value. */

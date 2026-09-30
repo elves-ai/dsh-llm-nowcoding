@@ -7,9 +7,12 @@
  * - **Subscription** (a monthly plan) — `GET {origin}/api/subscription/self`.
  *   This is the console API and matches what the gateway's own console shows:
  *   the plan's allowance and its consumption against it. It authenticates with
- *   a dashboard access token plus `New-Api-User`; the `sk-` model key is
- *   rejected on this chain, which is why the plugin asks for a second
- *   credential before it can report this balance.
+ *   a dashboard access token, or with the session cookie an account sign-in
+ *   answered, plus the `New-Api-User` header either way; the `sk-` model key
+ *   is rejected on this chain, which is why the plugin asks for a console
+ *   credential before it can report this balance. When both credentials are
+ *   configured the token is tried first and the session cookie takes over
+ *   when the token is refused, so a sign-in alone is enough.
  * - **Pay-as-you-go wallet** — `GET {base}/dashboard/billing/{subscription,usage}`.
  *   This is the relay API and authenticates with the same `sk-` key chat uses.
  *
@@ -84,6 +87,8 @@ export interface NowCodingQuotaReaderOptions {
     panelToken?: string;
     /** Dashboard user id sent as `New-Api-User`; required by the console chain. */
     panelUserId?: string;
+    /** Sign-in session cookie (`session=…`); the console chain accepts it in place of the token. */
+    panelSession?: string;
     /** Transport override; defaults to the global `fetch`. */
     fetchImpl?: typeof fetch;
     /** Per-attempt timeout in milliseconds. */

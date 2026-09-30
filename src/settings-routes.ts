@@ -77,8 +77,8 @@ export type NowCodingLoginAnswer =
     userId: string
     /** Account name, for the page's confirmation copy. */
     username: string
-    /** How the token was obtained, so the page can warn about a rotation. */
-    tokenSource: NowCodingPanelCredential['tokenSource']
+    /** How the token was obtained; absent when the sign-in stored only the session. */
+    tokenSource?: NowCodingPanelCredential['tokenSource']
   }
 
 /** One redacted secret slot as returned by `settings.describe({ redactSecrets: true })`. */
@@ -245,6 +245,7 @@ function validateOp(op: unknown): asserts op is SettingsPathOp {
     case 'baseURL':
     case 'panelToken':
     case 'panelUserId':
+    case 'panelSession':
       if (typeof value !== 'string') throw new NowCodingRouteError('bad-request', `"${field}" must be a string`)
       return
     case 'fast':
@@ -313,15 +314,18 @@ async function readQuota(options: NowCodingResolvedOptions): Promise<NowCodingQu
     refreshSeconds: options.quotaRefreshSeconds,
   }
   // Either credential can report a balance: the model key reaches the wallet,
-  // the dashboard token reaches a monthly plan. Lacking both is a normal
-  // first-run state rather than a failure, so the card says so instead of
-  // surfacing a credential error the user cannot act on yet.
-  if (options.apiKey.length === 0 && options.panelToken.length === 0) return { ...shared, snapshot: null }
+  // the dashboard token or the sign-in session reaches a monthly plan. Lacking
+  // all three is a normal first-run state rather than a failure, so the card
+  // says so instead of surfacing a credential error the user cannot act on yet.
+  if (options.apiKey.length === 0 && options.panelToken.length === 0 && options.panelSession.length === 0) {
+    return { ...shared, snapshot: null }
+  }
   const reader = createQuotaReader({
     baseURL: options.baseURL,
     apiKey: options.apiKey,
     panelToken: options.panelToken,
     panelUserId: options.panelUserId,
+    panelSession: options.panelSession,
   })
   return { ...shared, snapshot: await reader.read() }
 }
@@ -352,8 +356,9 @@ async function mutateSettings(
 /**
  * Store a finished sign-in's credential.
  *
- * The token is written from the Host and never rides the answer, so the page
- * learns which account signed in and nothing an XSS could replay.
+ * The token and the session cookie are written from the Host and never ride
+ * the answer, so the page learns which account signed in and nothing an XSS
+ * could replay.
  *
  * @param deps - settings seam and resolved options.
  * @param result - the sign-in step's answer.
@@ -362,15 +367,21 @@ async function mutateSettings(
 async function storeCredential(deps: NowCodingRouteDeps, result: NowCodingLoginResult): Promise<NowCodingLoginAnswer> {
   if (result.status === 'two-factor-required') return { status: 'two-factor-required' }
   const credential = result.credential
-  await mutateSettings(deps, [
-    { op: 'set', path: ['panelToken'], value: credential.accessToken },
+  const ops = [
     { op: 'set', path: ['panelUserId'], value: credential.userId },
-  ])
+    ...(credential.accessToken === undefined
+      ? []
+      : [{ op: 'set', path: ['panelToken'], value: credential.accessToken }]),
+    ...(credential.sessionCookie.length === 0
+      ? []
+      : [{ op: 'set', path: ['panelSession'], value: credential.sessionCookie }]),
+  ] as SettingsPathOp[]
+  await mutateSettings(deps, ops)
   return {
     status: 'ok',
     userId: credential.userId,
     username: credential.username,
-    tokenSource: credential.tokenSource,
+    ...credential.tokenSource === undefined ? {} : { tokenSource: credential.tokenSource },
   }
 }
 

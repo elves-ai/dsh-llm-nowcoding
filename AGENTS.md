@@ -18,7 +18,7 @@ The one rule that matters most: **the active dsh profile owns every `@deepseek-a
 | `src/fast.ts` | The one decision about `service_tier`, and what happens when the model has no fast tier. |
 | `src/models.ts` | Exact-route metadata behind `resolveModel` and `listModels`. No I/O. |
 | `src/quota.ts` | The balance reader and its normalization, with an injected transport. |
-| `src/panel-login.ts` | Console sign-in: the password exchange, the session cookie it holds, and the token read-back. |
+| `src/panel-login.ts` | Console sign-in: the password exchange, the session cookie it yields as the credential, and the read-only token read-back. |
 | `src/settings-routes.ts` | The fenced `/nowcoding/api` route, its dispatch, and the browser-trust policy. |
 | `src/settings-shared.ts` | Vocabulary both halves share. **Never import Host-only or Node modules here.** |
 | `src/wire.ts` | Gateway wire types and narrowing guards. |
@@ -92,7 +92,7 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 
 `quota.ts` reads two balances on two authentication chains, and every property below is load-bearing:
 
-- **Subscription (console chain).** `GET {origin}/api/subscription/self` with `Authorization: Bearer <dashboard token>` **and** `New-Api-User: <user id>`. The `sk-` model key is rejected here, so this balance is unavailable without the second credential — and the chain reports that rejection as **HTTP 200 with `success: false`**, which reads as an empty plan unless the body is checked.
+- **Subscription (console chain).** `GET {origin}/api/subscription/self` with `Authorization: Bearer <dashboard token>` **or** `Cookie: <sign-in session>`, **plus** `New-Api-User: <user id>` either way. The `sk-` model key is rejected here, so this balance is unavailable without a console credential — and the chain reports a bad credential as **HTTP 200 with `success: false`**, or a 401 naming the missing `New-Api-User` header, which reads as an empty plan unless the body is checked.
 - **Wallet (relay chain).** `GET {base}/dashboard/billing/{subscription,usage}` with the model key.
 - **Subscription amounts are raw quota units.** A displayed amount is `raw / quota_per_unit`, and `quota_per_unit` comes from the public `/api/status`; a guessed divisor misreports every figure, so the snapshot records the one it used.
 - `soft_limit_usd` (wallet) is the **granted total**, not the remaining balance. Remaining is `soft_limit_usd - total_usage / 100`.
@@ -102,11 +102,11 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 
 ### Console sign-in
 
-`panel-login.ts` turns an account name and password into the dashboard credential the reader needs. Three properties are security-relevant and must survive a rewrite:
+`panel-login.ts` turns an account name and password into the console credential the reader needs. Three properties are security-relevant and must survive a rewrite:
 
 - **The password is a call argument, never state.** It may not be written to the settings namespace, the session log, or a route answer, and the page clears its field once the login settles. A rewrite that "remembers" it in order to retry the second factor is a defect: the Host holds the half-finished session instead.
-- **Only this module reads a token.** `panelToken` reaches the page as a set/unset secret slot, and the sign-in answer carries the account name and id and nothing an XSS could replay.
-- **The read order is the safety property.** `/api/user/self/access-token` and `/api/user/self` report a token; `/api/user/token` issues one and **rotates an existing value**. Reaching the third route while the account still holds a token silently breaks every other tool configured with it.
+- **The session cookie is the credential; the token is a bonus.** The console routes accept `Cookie: session=…` beside `New-Api-User`, so a sign-in succeeds once the login answer's cookie is captured, whether or not the account holds an access token. Only routes that **report** a token are called; `/api/user/token` — the route that issues one and **rotates an existing value** — is never reached, because reaching it while the account still holds a token silently breaks every other tool configured with it. A token read failure must not fail a sign-in that holds the cookie.
+- **Only this module reads a token.** `panelToken` and `panelSession` reach the page as set/unset secret slots, and the sign-in answer carries the account name and id and nothing an XSS could replay.
 
 `turnstile-required` is its own failure code because the user's fix differs from a wrong password: the deployment solved a challenge this client cannot. **The password is not the only credential this touches** — signing in configures the console chain only, never the model key.
 
@@ -138,7 +138,8 @@ These were confirmed against the live gateway on **2026-09-30**. The gateway is 
 | Public catalog | `GET /api/pricing` (no credential) | returns `data[]`, `group_ratio`, `supported_endpoint` |
 | Key-scoped models | `GET /v1/models` | 401 with the same error body as `/dashboard/billing/*`, so both sit behind one token-auth chain |
 | Wallet balance | `GET {base}/dashboard/billing/subscription` and `/usage` | 401 for a bad key, not 404, which is what proves the routes exist |
-| Subscription balance | `GET {origin}/api/subscription/self` | needs a dashboard token **and** `New-Api-User`; a bad credential answers `200 {success:false}` |
+| Subscription balance | `GET {origin}/api/subscription/self` | needs `New-Api-User` beside a dashboard token **or** the session cookie; a bad credential answers `200 {success:false}`, a missing header answers 401 |
+| Console auth by session cookie | `Cookie: session=…` + `New-Api-User` authenticates the console routes without a Bearer token | replay a browser-issued session against `/api/subscription/self` with and without the header (verified 2026-09-30) |
 | Display divisor | `quota_per_unit` = 500000 | `GET /api/status` → `data.quota_per_unit` |
 | Display currency | CNY despite `*_usd` field names | `GET /api/status` → `quota_display_type` |
 | Health and latency | `GET /api/service-status/overview` (public) | per-group probes with `template` naming the protocol actually used |
@@ -181,7 +182,7 @@ Deferred work, in the order it is worth doing:
 1. **Locale-owned copy.** The client half writes its strings inline in Chinese. The Harness expects product copy in typed locale dictionaries, which needs `@deepseek-ai/dsh-client-locale` and a `locale` registration.
 2. **The Responses protocol.** Codex groups are reported by the gateway's own health checks as running `/v1/responses`, while the pricing metadata lists only `openai`. A second protocol on the adapter fixes a Codex-only group.
 3. **The Anthropic Messages protocol.** The gateway serves `/v1/messages` at the origin-level base.
-4. **Credential-seam integration.** `apiKeyEnv` resolves through `launchEnvironmentOf`. Resolving through `ctx.credentials` instead would let the model key — and the dashboard token sign-in produces — live in the credential store rather than the environment and the settings namespace.
+4. **Credential-seam integration.** `apiKeyEnv` resolves through `launchEnvironmentOf`. Resolving through `ctx.credentials` instead would let the model key — and the console credential a sign-in produces — live in the credential store rather than the environment and the settings namespace.
 
 ## Gotchas
 

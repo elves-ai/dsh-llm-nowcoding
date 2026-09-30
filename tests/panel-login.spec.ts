@@ -17,21 +17,29 @@ function loginWith(script: (sent: Sent) => Response, now: () => number = () => 1
 }
 
 describe('console sign-in', () => {
-  it('returns the account token read over the answered session', async () => {
+  it('returns the session cookie and the token read over it', async () => {
     const { client, sent } = loginWith(request => request.path === '/api/user/login'
       ? answer(account, [session])
       : answer({ success: true, data: 'tok-42' }))
 
     await expect(client.login(' demo ', 'secret')).resolves.toEqual({
       status: 'ok',
-      credential: { accessToken: 'tok-42', userId: '8893', username: 'demo', tokenSource: 'read' },
+      credential: {
+        sessionCookie: 'session=abc123',
+        accessToken: 'tok-42',
+        userId: '8893',
+        username: 'demo',
+        tokenSource: 'read',
+      },
     })
     expect(sent.map(request => `${request.method} ${request.path}`)).toEqual([
       'POST /api/user/login',
+      'POST /api/agreement/accept',
       'GET /api/user/self/access-token',
     ])
     expect(sent[0]?.body).toEqual({ username: 'demo', password: 'secret' })
     expect(sent[1]?.cookie).toBe('session=abc123')
+    expect(sent[2]?.cookie).toBe('session=abc123')
   })
 
   it('carries JSON content and the harness attribution headers', async () => {
@@ -54,7 +62,7 @@ describe('console sign-in', () => {
     await expect(client.login('demo', 'secret')).resolves.toMatchObject({
       credential: { accessToken: 'inline-tok', tokenSource: 'login' },
     })
-    expect(sent).toHaveLength(1)
+    expect(sent).toHaveLength(2)
   })
 
   it('falls back to the account document when the token route refuses', async () => {
@@ -68,33 +76,47 @@ describe('console sign-in', () => {
     })
     expect(sent.map(request => request.path)).toEqual([
       '/api/user/login',
+      '/api/agreement/accept',
       '/api/user/self/access-token',
       '/api/user/self',
     ])
   })
 
-  it('issues a token only after both read routes came back empty', async () => {
+  it('signs in without a token and never asks the console to issue one', async () => {
     const { client, sent } = loginWith((request) => {
       if (request.path === '/api/user/login') return answer(account, [session])
-      if (request.path === '/api/user/token') return answer({ success: true, data: 'tok-new' })
-      return answer({ success: false, message: 'empty' })
+      return answer({ success: false, message: 'Unauthorized, invalid access token' })
     })
-    await expect(client.login('demo', 'secret')).resolves.toMatchObject({
-      credential: { accessToken: 'tok-new', tokenSource: 'generated' },
+    await expect(client.login('demo', 'secret')).resolves.toEqual({
+      status: 'ok',
+      credential: { sessionCookie: 'session=abc123', userId: '8893', username: 'demo' },
     })
     expect(sent.map(request => request.path)).toEqual([
       '/api/user/login',
+      '/api/agreement/accept',
       '/api/user/self/access-token',
       '/api/user/self',
-      '/api/user/token',
     ])
   })
 
-  it('reports an account whose token no route would hand over', async () => {
+  it('reports a sign-in that ended with neither a session nor a token', async () => {
     const { client } = loginWith(request => request.path === '/api/user/login'
-      ? answer(account, [session])
+      ? answer(account)
       : answer({ success: false, message: 'Unauthorized, invalid access token' }))
     await expect(client.login('demo', 'secret')).rejects.toMatchObject({ code: 'token-unavailable' })
+  })
+
+  it('ignores a refused agreement confirmation', async () => {
+    const { client, sent } = loginWith((request) => {
+      if (request.path === '/api/user/login') return answer(account, [session])
+      if (request.path === '/api/agreement/accept') return answer({ success: false, message: 'refused' })
+      return answer({ success: true, data: 'tok-42' })
+    })
+    await expect(client.login('demo', 'secret')).resolves.toMatchObject({
+      credential: { accessToken: 'tok-42', tokenSource: 'read' },
+    })
+    expect(sent[1]?.method).toBe('POST')
+    expect(sent[1]?.path).toBe('/api/agreement/accept')
   })
 
   it('asks for the second factor and completes it over the same session', async () => {
@@ -106,11 +128,12 @@ describe('console sign-in', () => {
 
     await expect(client.login('demo', 'secret')).resolves.toEqual({ status: 'two-factor-required' })
     await expect(client.verifyTwoFactor(' 123456 ')).resolves.toMatchObject({
-      credential: { accessToken: 'tok-42', userId: '8893' },
+      credential: { accessToken: 'tok-42', userId: '8893', sessionCookie: 'session=abc123' },
     })
     expect(sent[1]?.body).toEqual({ code: '123456' })
     expect(sent[1]?.cookie).toBe('session=abc123')
     expect(sent[2]?.cookie).toBe('session=abc123')
+    expect(sent[3]?.cookie).toBe('session=abc123')
   })
 
   it('reports a refused password with the console message', async () => {

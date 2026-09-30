@@ -27,7 +27,7 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 - **GPT fast mode.** Fast-capable GPT models get a second picker entry (`gpt-5.6-sol-fast`) that sends the same wire model with `service_tier`; a route default turns it on for every fast-capable model. See [Fast mode](#fast-mode) for the caveat that actually decides whether it takes effect.
 - **Selectable reasoning levels.** Each model declares the levels its picker offers and the spelling the request sends, so the level ids never leak into the wire format.
 - **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, and the sidebar switch, plus a balance block with a manual refresh and a self-update card. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
-- **Remaining-quota reader.** A card at the sidebar foot, directly beside Settings, shows either a monthly plan's allowance — read from the console with a dashboard token — or the pay-as-you-go wallet read with the same key chat uses.
+- **Remaining-quota reader.** A card at the sidebar foot, directly beside Settings, shows either a monthly plan's allowance — read from the console with a dashboard token or the session cookie an account sign-in answers — or the pay-as-you-go wallet read with the same key chat uses.
 - **Live settings.** API key, endpoint, fast mode, and the sidebar switch are editable on the detail page and apply to the next request without a restart.
 
 -----
@@ -79,8 +79,8 @@ Open the sidebar's **Plugins** page and click **NowCoding**. The page reaches th
 | Fast mode | off | Send `service_tier` on every fast-capable model. |
 | Fast tier value | `priority` | Wire spelling: `priority` (the pre-rename spelling, safest on a gateway that predates it) or `fast`. |
 | Sidebar balance card | on | Show the remaining-quota card above Settings in the left sidebar. |
-| Panel user ID | (blank) | Dashboard user id, sent as `New-Api-User`. Required by the console chain that reports a monthly plan. Signing in fills it. |
-| Panel access token | (blank) | Dashboard token from the console's system-access-token page. Only it can read a plan's allowance, because the console chain rejects the `sk-` key. Blank leaves the card on the pay-as-you-go wallet. Signing in fills it. |
+| Panel user ID | (blank) | Dashboard user id, sent as `New-Api-User`. Required by the console chain that reports a monthly plan, beside the token or the sign-in session alike. Signing in fills it. |
+| Panel access token | (blank) | Dashboard token from the console's system-access-token page. The console chain rejects the `sk-` key, so a plan's allowance needs this token or a sign-in session. Blank leaves the card on the pay-as-you-go wallet. Signing in stores the session and reads this token when the account has one. |
 
 Every field also exists as a composition field, so a profile can pin only what it needs and let the settings layer override the rest:
 
@@ -140,26 +140,26 @@ The gateway reports two different balances on two different authentication chain
 **A monthly plan** is what the gateway's own console shows. It is read from the console API:
 
 ```
-GET {origin}/api/subscription/self   Authorization: Bearer <dashboard token>, New-Api-User: <user id>
+GET {origin}/api/subscription/self   Bearer <dashboard token> or Cookie: <sign-in session>, plus New-Api-User: <user id>
 GET {origin}/api/status              public; supplies quota_per_unit
 ```
 
-The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore takes a second credential on its detail page: the dashboard user id and an access token from the console's system-access-token page. With both set, the card shows the plan's allowance and its consumption against it, matching the console.
+The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore takes a console credential on its detail page: the dashboard user id, plus either an access token from the console's system-access-token page or the session cookie an account sign-in answers with. Both credentials need the user id beside them; when both are configured the token is tried first and the session takes over when the token is refused. With any working pair, the card shows the plan's allowance and its consumption against it, matching the console.
 
 ### Signing in instead of copying the token
 
-The detail page obtains that credential for you. Its sign-in block takes the NowCoding account name and password, performs the console login, and writes the resulting token and user id into the two fields above.
+The detail page obtains that credential for you. Its sign-in block takes the NowCoding account name and password, performs the console login, and writes the sign-in session and the user id into the plugin's configuration — the plan balance works from that alone. When the account holds an access token it is read back as well, as the credential the chain tries first because it does not expire.
 
 ```
-POST {origin}/api/user/login        { username, password }   -> session cookie + account document
-POST {origin}/api/user/login/2fa    { code }                 only when the answer sets require_2fa
-GET  {origin}/api/user/self/access-token                     -> the account's dashboard token
-GET  {origin}/api/user/token                                 -> issues one, rotating an existing token
+POST {origin}/api/user/login          { username, password }   -> session cookie + account document
+POST {origin}/api/user/login/2fa      { code }                 only when the answer sets require_2fa
+POST {origin}/api/agreement/accept    best effort; a refusal is ignored
+GET  {origin}/api/user/self/access-token                       -> the account's dashboard token, when it has one
 ```
 
-**The password is used once and stored nowhere.** It travels to the gateway in that single login request; the Host keeps it for the duration of the call, never writes it to the settings store, and never returns it to the page, which clears the field as soon as the login settles. The token that comes back is written by the Host process, so it does not ride a response either.
+**The password is used once and stored nowhere.** It travels to the gateway in that single login request; the Host keeps it for the duration of the call, never writes it to the settings store, and never returns it to the page, which clears the field as soon as the login settles. The session and the token are written by the Host process, so neither rides a response either.
 
-The token is read over the session cookie the login set. The plugin tries the read-only routes first and reaches `/api/user/token` — the route the console itself labels a reset — only when the account holds no token, so an existing token is not rotated out from under your other tools.
+The session is the credential the console's own browser uses, and the plugin keeps it the same way. Only routes that report a token are called: `/api/user/token` — the route the console itself labels a reset — is never reached, so an existing token is never rotated out from under your other tools. A session expires when the console expires it; signing in again refreshes it, and the sign-in confirms the site agreement once along the way, the way the console's own web app does.
 
 Three things worth knowing before you rely on it:
 
@@ -193,7 +193,7 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 2. **A turn completes.** Pick `gpt-5.6-sol` (or any model your group serves) and send a message. Text streams, tool calls run, and the session's token accounting fills in.
 3. **The balance reads.** The sidebar card and the detail page both show a remaining balance. If it shows an error, its code says whether the key was rejected (`unauthorized`) or the gateway could not be reached (`unreachable`).
 4. **Fast mode is visible in the request.** With the `-fast` entry selected, the request body carries `service_tier`; check the response's echoed tier to learn whether the channel forwards it.
-5. **Sign-in fills the console credential.** On the detail page, the sign-in block with the account name and password writes Panel user ID and Panel access token and switches the balance to the plan's allowance. A refused password reports so in Chinese; a deployment with Turnstile on reports that instead.
+5. **Sign-in fills the console credential.** On the detail page, the sign-in block with the account name and password writes Panel user ID and the sign-in session, reads the access token when the account has one, and switches the balance to the plan's allowance. A refused password reports so in Chinese; a deployment with Turnstile on reports that instead.
 
 ## Update
 
@@ -244,7 +244,7 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 | `src/fast.ts` | Whether one request sends `service_tier`, and what happens when it cannot. |
 | `src/models.ts` | Exact-route metadata answering `resolveModel` and `listModels`. |
 | `src/quota.ts` | The remaining-quota reader and its normalization. |
-| `src/panel-login.ts` | The console sign-in that yields the dashboard token and user id. |
+| `src/panel-login.ts` | The console sign-in that yields the sign-in session, the user id, and the dashboard token when one is readable. |
 | `src/settings-routes.ts` | The fenced `/nowcoding/api` route and its browser-trust policy. |
 | `src/settings-shared.ts` | Settings vocabulary shared by both halves, free of Host-only imports. |
 | `src/adapter.ts`, `src/serialize.ts`, `src/sse.ts`, `src/translate.ts`, `src/transport.ts`, `src/wire.ts` | The OpenAI-compatible streaming adapter. |
@@ -258,7 +258,8 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 - **The catalog is a snapshot.** It is dated in `src/catalog.ts` and corrected by configuration rather than by a release; nothing in the adapter assumes the list is current.
 - **Fast mode cannot be verified from outside.** Whether a channel forwards `service_tier` is a management-side setting; the plugin can send the field and report the echoed tier, and nothing more.
 - **The balance is key-scoped or account-scoped depending on a hidden switch.** new-api can report either the API key's own quota or the account's, chosen by a server setting the gateway does not publish. The card labels what it read without claiming which one it is.
-- **A subscription balance needs a second credential.** The console chain rejects the model key, so the plugin takes a dashboard user id and access token, obtained by signing in or pasted by hand; without them the card reports the pay-as-you-go wallet instead. Other console APIs are out of scope.
+- **A subscription balance needs a console credential.** The console chain rejects the model key, so the plugin takes a dashboard user id plus an access token or a sign-in session, obtained by signing in or pasted by hand; without either the card reports the pay-as-you-go wallet instead. Other console APIs are out of scope.
+- **The sign-in session expires on the console's clock.** It is the credential the console's own browser holds; when the console retires it the card reports a rejected credential until you sign in again. The access token, when the account has one, is the fallback that does not expire.
 - **Sign-in is a password login, not OAuth.** The gateway can offer GitHub, LinuxDO, WeChat, Telegram, and OIDC sign-in; all are off on this deployment, and an OAuth flow would need a browser redirect this plugin cannot host. Username and password, plus 2FA, is the supported path.
 - **A Turnstile deployment cannot be signed into from here.** Only a browser can solve the challenge; the manual token field remains the way in.
 - **Client copy is inline Chinese.** The Harness expects product copy in typed locale dictionaries, which needs `@deepseek-ai/dsh-client-locale` and a locale registration; that is later work.

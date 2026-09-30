@@ -55,8 +55,8 @@ export type NowCodingLoginAnswer = {
     userId: string;
     /** Account name, for the page's confirmation copy. */
     username: string;
-    /** How the token was obtained, so the page can warn about a rotation. */
-    tokenSource: NowCodingPanelCredential['tokenSource'];
+    /** How the token was obtained; absent when the sign-in stored only the session. */
+    tokenSource?: NowCodingPanelCredential['tokenSource'];
 };
 /** One redacted secret slot as returned by `settings.describe({ redactSecrets: true })`. */
 export interface NowCodingSettingsSecretView {

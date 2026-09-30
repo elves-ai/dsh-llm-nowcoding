@@ -29,6 +29,7 @@ import {
   getNowCodingSettings,
   getQuota,
   isNowCodingApiKeyConfigured,
+  isNowCodingPanelSessionConfigured,
   isNowCodingPanelTokenConfigured,
   mutateNowCodingSettings,
   panelLogin,
@@ -119,7 +120,7 @@ function loginMessageOf(error: unknown): string {
     case 'turnstile-required':
       return '站方已开启 Turnstile 人机校验，插件无法完成这一步；请在控制台复制访问令牌后手动填入。'
     case 'token-unavailable':
-      return '登录成功，但站方没有回读访问令牌；请在控制台的系统访问令牌页复制一个，手动填入下方。'
+      return '登录成功，但站方没有返回登录会话或访问令牌；请在控制台的系统访问令牌页复制一个，手动填入下方。'
     case 'unreachable':
     case 'timeout':
     case 'gateway-error':
@@ -277,8 +278,8 @@ export function NowCodingDetailPage(): ReactElement | null {
     const next = await getNowCodingSettings()
     setEnvelope(next)
     setDrafts(draftsOf(next))
-    const rotated = view.tokenSource === 'generated' ? '站方本次新签发了一个访问令牌。' : ''
-    setLoginNotice(`已登录 ${view.username}（用户 ID ${view.userId}），面板令牌与用户 ID 已写入配置。${rotated}`)
+    const sessionNote = view.tokenSource === undefined ? '未读到访问令牌，订阅余量将通过登录会话读取。' : ''
+    setLoginNotice(`已登录 ${view.username}（用户 ID ${view.userId}），登录会话与用户 ID 已写入配置。${sessionNote}`)
     void refreshQuota()
   }
 
@@ -453,6 +454,7 @@ export function NowCodingDetailPage(): ReactElement | null {
 
   const configured = isNowCodingApiKeyConfigured(envelope)
   const panelConfigured = isNowCodingPanelTokenConfigured(envelope)
+  const panelSessionConfigured = isNowCodingPanelSessionConfigured(envelope)
   const disabled = envelope.writable === false || saving
   const snapshot = quota === null ? null : quota.snapshot
 
@@ -692,7 +694,7 @@ export function NowCodingDetailPage(): ReactElement | null {
       </div>
 
       <div className={css.card}>
-        <p className={css.cardIntro}>订阅（月卡）余量需要控制台凭据：控制台接口不接受 sk- 开头的模型 Key。用下面的账号登录会自动填入这两项，也可以手动填写；两项都留空时，卡片显示按量余额。</p>
+        <p className={css.cardIntro}>订阅（月卡）余量需要控制台凭据：控制台接口不接受 sk- 开头的模型 Key。用下面的账号登录会把登录会话与用户 ID 写入配置，也可以手动填写访问令牌；两者都没有时，卡片显示按量余额。</p>
 
         <div className={css.row}>
           <div className={css.rowText}>
@@ -716,7 +718,7 @@ export function NowCodingDetailPage(): ReactElement | null {
         <div className={css.row}>
           <div className={css.rowText}>
             <label className={css.title} htmlFor="nowcoding-panel-token">面板访问令牌</label>
-            <span className={css.desc}>在控制台的系统访问令牌页生成。读取订阅额度时用它，不会回显；留空保存表示保持当前值。</span>
+            <span className={css.desc}>在控制台的系统访问令牌页生成，与登录会话二选一即可，读取订阅额度时优先使用它。不会回显；留空保存表示保持当前值。</span>
           </div>
           <div className={css.control}>
             <input
@@ -755,7 +757,7 @@ export function NowCodingDetailPage(): ReactElement | null {
       </div>
 
       <div className={css.card}>
-        <p className={css.cardIntro}>用 NowCoding 账号登录，自动获取上面的控制台凭据：密码只随这一次登录请求发出、不写入配置，换到的访问令牌由 Host 直接写进配置、不回传浏览器。</p>
+        <p className={css.cardIntro}>用 NowCoding 账号登录，自动获取上面的控制台凭据：密码只随这一次登录请求发出、不写入配置，登录会话由 Host 直接写进配置、不回传浏览器，会话过期后重新登录一次即可。</p>
 
         <div className={css.row}>
           <div className={css.rowText}>
@@ -822,6 +824,7 @@ export function NowCodingDetailPage(): ReactElement | null {
             <span className={css.desc}>登录成功后订阅余量与按量余额立即可读。站方若开启 Turnstile 人机校验，这一步在插件里无法完成，请改用手动填写。</span>
           </div>
           <div className={css.control}>
+            {panelSessionConfigured && <span className={css.badgeOn}>已保存会话</span>}
             <button
               type="button"
               className={css.buttonPrimary}

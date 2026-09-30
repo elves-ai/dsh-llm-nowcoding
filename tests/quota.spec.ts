@@ -229,6 +229,65 @@ describe('createQuotaReader', () => {
     await expect(reader.read()).rejects.toMatchObject({ code: 'unauthorized' })
   })
 
+  it('reads the console subscription through the sign-in session cookie', async () => {
+    const seen: { url: string; headers: Headers }[] = []
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1',
+      apiKey: 'sk-test',
+      panelSession: 'session=abc123',
+      panelUserId: '8893',
+      fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push({ url: String(input), headers: new Headers(init?.headers) })
+        return okFetch(String(input))
+      }) as typeof fetch,
+    })
+    const snapshot = await reader.read()
+    expect(snapshot.source).toBe('subscription')
+    expect(seen[0]?.headers.get('cookie')).toBe('session=abc123')
+    expect(seen[0]?.headers.get('new-api-user')).toBe('8893')
+    expect(seen[0]?.headers.has('authorization')).toBe(false)
+  })
+
+  it('falls back to the session cookie when the token is refused', async () => {
+    let consoleAttempts = 0
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1',
+      apiKey: 'sk-test',
+      panelToken: 'stale-token',
+      panelSession: 'session=abc123',
+      panelUserId: '8893',
+      fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.includes('subscription/self')) {
+          consoleAttempts += 1
+          if (consoleAttempts === 1) {
+            return new Response(
+              JSON.stringify({ message: 'Unauthorized, invalid access token', success: false }),
+              { status: 200 },
+            )
+          }
+          expect(new Headers(init?.headers).get('cookie')).toBe('session=abc123')
+        }
+        return okFetch(url)
+      }) as typeof fetch,
+    })
+    expect((await reader.read()).source).toBe('subscription')
+  })
+
+  it('reports unauthorized when both console credentials are refused', async () => {
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1',
+      apiKey: 'sk-test',
+      panelToken: 'stale-token',
+      panelSession: 'session=stale',
+      fetchImpl: (async () => new Response(
+        JSON.stringify({ message: 'Unauthorized, invalid access token', success: false }),
+        { status: 200 },
+      )) as typeof fetch,
+    })
+    await expect(reader.read()).rejects.toMatchObject({ code: 'unauthorized' })
+  })
+
   it('sends the model key as a bearer token on the relay chain', async () => {
     let authorization: string | undefined
     const reader = createQuotaReader({

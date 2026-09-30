@@ -33,6 +33,7 @@ function options(overrides: Partial<NowCodingResolvedOptions> = {}): NowCodingRe
     quotaCard: false,
     panelToken: '',
     panelUserId: '',
+    panelSession: '',
     quotaRefreshSeconds: 300,
     requestTimeoutMs: 300_000,
     settingsNs: 'llm-nowcoding',

@@ -118,10 +118,12 @@ export interface Config {
   fastServiceTier: Volatile<NowCodingFastServiceTier>
   /** Whether the sidebar quota card is shown. */
   quotaCard: Volatile<boolean>
-  /** Dashboard access token; required to read a monthly plan's allowance. */
+  /** Dashboard access token; required to read a monthly plan's allowance without a sign-in. */
   panelToken: Volatile<string | undefined>
   /** Dashboard user id sent as `New-Api-User`; required by the console chain. */
   panelUserId: Volatile<string | undefined>
+  /** Sign-in session cookie; the console chain accepts it in place of the token. */
+  panelSession: Volatile<string | undefined>
   /** Seconds between balance refreshes in the sidebar card. */
   quotaRefreshSeconds: Volatile<number>
   /**
@@ -189,9 +191,12 @@ export const Config = z.object({
   fastServiceTier: z.union(['priority', 'fast']).default('priority').volatile(),
   quotaCard: z.boolean().default(true).volatile(),
   // The console chain rejects the `sk-` model key, so a plan balance needs its
-  // own credential; both fields are write-only from a settings surface.
+  // own credential: the dashboard token, or the session cookie an account
+  // sign-in answers with. All three fields are write-only from a settings
+  // surface.
   panelToken: z.string().role('secret').volatile(),
   panelUserId: z.string().volatile(),
+  panelSession: z.string().role('secret').volatile(),
   quotaRefreshSeconds: z.number().step(1).min(NOWCODING_MIN_QUOTA_REFRESH_SECONDS)
     .default(NOWCODING_DEFAULT_QUOTA_REFRESH_SECONDS).volatile(),
   settingsNs: z.string().default(NOWCODING_SETTINGS_NAMESPACE).volatile(),
@@ -282,10 +287,12 @@ export interface NowCodingResolvedOptions {
   catalog: readonly ResolvedNowCodingModel[]
   /** Whether the sidebar quota card is shown. */
   quotaCard: boolean
-  /** Dashboard access token; empty leaves the reader on the relay billing pair. */
+  /** Dashboard access token; empty leaves the reader on the session cookie, then the relay pair. */
   panelToken: string
   /** Dashboard user id sent as `New-Api-User`. */
   panelUserId: string
+  /** Sign-in session cookie; empty leaves the reader on the token, then the relay pair. */
+  panelSession: string
   /** Seconds between balance refreshes. */
   quotaRefreshSeconds: number
   /** Per-request timeout in milliseconds. */
@@ -327,6 +334,7 @@ export function resolveNowCodingOptions(ctx: Context, config: Config): NowCoding
     quotaCard: config.quotaCard.get(),
     panelToken: config.panelToken.get()?.trim() ?? '',
     panelUserId: config.panelUserId.get()?.trim() ?? '',
+    panelSession: config.panelSession.get()?.trim() ?? '',
     quotaRefreshSeconds: config.quotaRefreshSeconds.get(),
     requestTimeoutMs: config.requestTimeoutMs.get(),
     settingsNs: config.settingsNs.get(),

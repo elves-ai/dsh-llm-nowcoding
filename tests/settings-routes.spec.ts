@@ -25,6 +25,7 @@ const OPTIONS: NowCodingResolvedOptions = {
   quotaCard: true,
   panelToken: '',
   panelUserId: '',
+  panelSession: '',
   quotaRefreshSeconds: 300,
   requestTimeoutMs: 300_000,
   settingsNs: NOWCODING_SETTINGS_NAMESPACE,
@@ -92,16 +93,33 @@ function tokenConsole(request: Sent): Response {
 }
 
 describe('the fenced route dispatch', () => {
-  it('stores the console credential and answers without the token', async () => {
+  it('stores the console credential and answers without it', async () => {
     const { deps, settings } = depsOf(tokenConsole)
     const result = await dispatchNowCodingMethod(deps, 'panel.login', { username: 'demo', password: 'hunter2' })
 
     expect(result).toEqual({ status: 'ok', userId: '8893', username: 'demo', tokenSource: 'read' })
-    expect(settings.value()).toEqual({ panelToken: 'tok-42', panelUserId: '8893' })
+    expect(settings.value()).toEqual({
+      panelToken: 'tok-42',
+      panelUserId: '8893',
+      panelSession: 'session=abc123',
+    })
     expect(settings.writes).toHaveLength(1)
     expect(settings.writes[0]?.expectedRevision).toBeUndefined()
     expect(JSON.stringify(result)).not.toContain('tok-42')
+    expect(JSON.stringify(result)).not.toContain('abc123')
     expect(JSON.stringify(settings.writes)).not.toContain('hunter2')
+  })
+
+  it('stores the sign-in session alone when no token is readable', async () => {
+    const { deps, settings, sent } = depsOf((request) => {
+      if (request.path === '/api/user/login') return answer(account, [session])
+      return answer({ success: false, message: 'Unauthorized, invalid access token' })
+    })
+    const result = await dispatchNowCodingMethod(deps, 'panel.login', { username: 'demo', password: 'hunter2' })
+
+    expect(result).toEqual({ status: 'ok', userId: '8893', username: 'demo' })
+    expect(settings.value()).toEqual({ panelUserId: '8893', panelSession: 'session=abc123' })
+    expect(sent.map(request => request.path)).not.toContain('/api/user/token')
   })
 
   it('writes nothing until the second factor lands', async () => {
@@ -117,10 +135,15 @@ describe('the fenced route dispatch', () => {
 
     await expect(dispatchNowCodingMethod(deps, 'panel.two-factor', { code: '123456' }))
       .resolves.toEqual({ status: 'ok', userId: '8893', username: 'demo', tokenSource: 'read' })
-    expect(settings.value()).toEqual({ panelToken: 'tok-42', panelUserId: '8893' })
+    expect(settings.value()).toEqual({
+      panelToken: 'tok-42',
+      panelUserId: '8893',
+      panelSession: 'session=abc123',
+    })
     expect(sent.map(request => request.path)).toEqual([
       '/api/user/login',
       '/api/user/login/2fa',
+      '/api/agreement/accept',
       '/api/user/self/access-token',
     ])
   })
@@ -154,6 +177,14 @@ describe('the fenced route dispatch', () => {
     await expect(dispatchNowCodingMethod(deps, 'settings.mutate', {
       ops: [{ op: 'set', path: ['apiKeyEnv'], value: 'OTHER_KEY' }],
     })).rejects.toMatchObject({ code: 'bad-request' })
+  })
+
+  it('accepts the sign-in session as a writable settings field', async () => {
+    const { deps, settings } = depsOf(tokenConsole)
+    await dispatchNowCodingMethod(deps, 'settings.mutate', {
+      ops: [{ op: 'set', path: ['panelSession'], value: 'session=abc123' }],
+    })
+    expect(settings.value()).toMatchObject({ panelSession: 'session=abc123' })
   })
 
   it('names the missing settings service instead of failing obscurely', async () => {

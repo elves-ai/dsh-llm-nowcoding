@@ -2,18 +2,24 @@
  * Console sign-in for the NowCoding dashboard.
  *
  * The console chain that reports a monthly plan authenticates with a dashboard
- * access token plus the numeric user id, and the console issues both only after
+ * credential plus the numeric user id, and the console issues both only after
  * a username/password login. This module performs that login and returns the
- * pair. The password is an argument of one request: it is never stored, logged,
- * or echoed back, and the session cookie the console answers with lives in this
- * instance only until the credential comes out.
+ * pair: the session cookie the login answer carries is the credential, and the
+ * dashboard access token is read back beside it when the account holds one.
+ * The password is an argument of one request: it is never stored, logged, or
+ * echoed back, and the cookie leaves only as a settings write the caller makes.
  *
- * Two gateway behaviours decide the flow:
+ * Three gateway behaviours decide the flow:
  *
+ * - The session cookie is the credential the console's own browser uses — the
+ *   console routes accept `Cookie: session=…` beside `New-Api-User` — so a
+ *   sign-in succeeds once the cookie is in hand, whether or not the account
+ *   carries an access token.
  * - The token is read back over the session cookie rather than taken from the
- *   login answer, because the answer's own document does not reliably carry it.
- *   The one route that issues a token also rotates an existing one, so it is the
- *   last resort and only runs when the account holds no token to lose.
+ *   login answer, because the answer's own document does not reliably carry
+ *   it. Only routes that report a token are called: the one route that issues
+ *   a token also rotates an existing one, which would silently break every
+ *   other tool configured with the account's token, so it is never reached.
  * - A deployment can switch Turnstile on, which a non-browser client cannot
  *   solve. That state is reported as its own failure code rather than as a
  *   wrong password, because the user's fix is different.
@@ -23,7 +29,7 @@
 
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 import {
-  NOWCODING_ACCESS_TOKEN_PATH,
+  NOWCODING_AGREEMENT_ACCEPT_PATH,
   NOWCODING_LOGIN_PATH,
   NOWCODING_SELF_ACCESS_TOKEN_PATH,
   NOWCODING_SELF_PATH,
@@ -40,7 +46,7 @@ export type NowCodingLoginFailure =
   | 'two-factor-unavailable'
   /** The deployment checks Turnstile, which only a browser can answer. */
   | 'turnstile-required'
-  /** Signed in, but no dashboard token could be read for the account. */
+  /** Signed in, but the console answered neither a session cookie nor a token. */
   | 'token-unavailable'
   /** The console could not be reached. */
   | 'unreachable'
@@ -62,19 +68,26 @@ export class NowCodingLoginError extends Error {
   }
 }
 
-/** The dashboard credential pair a completed sign-in yields. */
+/** The console credential pair a completed sign-in yields. */
 export interface NowCodingPanelCredential {
-  /** Dashboard access token, sent as `Authorization: Bearer` on the console chain. */
-  accessToken: string
+  /**
+   * Session cookie the console issued, as the `Cookie` header to replay
+   * (`session=…`, joined with any other pair the answer set). The console
+   * chain accepts it in place of an access token.
+   */
+  sessionCookie: string
+  /**
+   * Dashboard access token, sent as `Authorization: Bearer` on the console
+   * chain. Absent when no route reported one; the session cookie carries the
+   * chain either way.
+   */
+  accessToken?: string
   /** Numeric account id, sent as `New-Api-User`. */
   userId: string
   /** Account name the console reported, for the page's confirmation copy. */
   username: string
-  /**
-   * Where the token came from. `read` reports a pre-existing token and
-   * `generated` a newly issued one, which rotates any token the account had.
-   */
-  tokenSource: 'login' | 'read' | 'generated'
+  /** Where the token came from: the login answer's own document, or a read-back. Absent when no token was obtained. */
+  tokenSource?: 'login' | 'read'
 }
 
 /** Answer of one sign-in step. */
@@ -248,49 +261,57 @@ export function createPanelLogin(options: NowCodingLoginOptions): NowCodingPanel
   /**
    * Read the account's token with the session the login just issued.
    *
-   * The order is deliberate: two routes only report a token, while the third
-   * issues one and rotates an existing value, so it runs last and only for an
-   * account that holds nothing to rotate.
+   * Both routes here only report a token. The one route that issues one also
+   * rotates an existing value and is never called: the session cookie already
+   * carries the console chain, so a missing token costs nothing.
    *
    * @param cookie - session cookie from the login answer.
-   * @param username - account name, for the failure message.
-   * @returns the token and how it was obtained.
+   * @returns the token, or undefined when no route reported one.
    */
-  async function readAccessToken(cookie: string, username: string): Promise<{ token: string; source: 'read' | 'generated' }> {
-    const attempts: readonly { path: string; source: 'read' | 'generated'; token: (answer: ConsoleAnswer) => string | undefined }[] = [
-      { path: NOWCODING_SELF_ACCESS_TOKEN_PATH, source: 'read', token: answer => textOf(answer.body['data']) },
-      { path: NOWCODING_SELF_PATH, source: 'read', token: answer => textOf(recordMember(answer.body, 'data')?.['access_token']) },
-      { path: NOWCODING_ACCESS_TOKEN_PATH, source: 'generated', token: answer => textOf(answer.body['data']) },
+  async function readAccessToken(cookie: string): Promise<string | undefined> {
+    const attempts: readonly { path: string; token: (answer: ConsoleAnswer) => string | undefined }[] = [
+      { path: NOWCODING_SELF_ACCESS_TOKEN_PATH, token: answer => textOf(answer.body['data']) },
+      { path: NOWCODING_SELF_PATH, token: answer => textOf(recordMember(answer.body, 'data')?.['access_token']) },
     ]
-    let failure: string | undefined
     for (const attempt of attempts) {
       try {
         const answer = await send('GET', attempt.path, undefined, cookie, 'token-unavailable')
         if (answer.body['success'] !== true) {
           // A refusal is a normal step of the chain: the console answers HTTP
           // 200 with success:false for a route this account may not use.
-          failure = messageOf(answer.body) ?? `${attempt.path} refused the session`
           continue
         }
         const token = attempt.token(answer)
-        if (token !== undefined) return { token, source: attempt.source }
-      } catch (error) {
-        failure = error instanceof Error ? error.message : String(error)
+        if (token !== undefined) return token
+      } catch {
+        // A read failure must not fail a sign-in that already holds the cookie.
       }
     }
-    throw new NowCodingLoginError(
-      'token-unavailable',
-      `signed in as ${username}, but no dashboard access token could be read (${failure ?? 'no credential route answered'})`,
-    )
+    return undefined
   }
 
   /**
-   * Turn a signed-in account document into the credential pair.
+   * Confirm the site agreement the way the console's own web app does, right
+   * after a successful login. Best-effort: this client cannot display the
+   * agreement, and a refusal here never fails a sign-in that holds the cookie.
+   *
+   * @param cookie - session cookie from the login answer.
+   */
+  async function acceptAgreement(cookie: string): Promise<void> {
+    try {
+      await send('POST', NOWCODING_AGREEMENT_ACCEPT_PATH, undefined, cookie, 'bad-credentials')
+    } catch {
+      // Ignored on purpose: the sign-in itself has already succeeded.
+    }
+  }
+
+  /**
+   * Turn a signed-in account document into the console credential pair.
    *
    * @param data - the console's `data` document for the account.
    * @param cookie - session cookie from the same answer.
    * @param username - account name to report alongside the credential.
-   * @returns the access token and the account id.
+   * @returns the session cookie, the account id, and the token when one was readable.
    */
   async function credentialOf(
     data: Record<string, unknown>,
@@ -305,9 +326,18 @@ export function createPanelLogin(options: NowCodingLoginOptions): NowCodingPanel
       )
     }
     const inline = textOf(data['access_token'])
-    if (inline !== undefined) return { accessToken: inline, userId, username, tokenSource: 'login' }
-    const read = await readAccessToken(cookie, username)
-    return { accessToken: read.token, userId, username, tokenSource: read.source }
+    if (inline !== undefined) return { sessionCookie: cookie, accessToken: inline, userId, username, tokenSource: 'login' }
+    const token = cookie.length > 0 ? await readAccessToken(cookie) : undefined
+    if (token !== undefined) {
+      return { sessionCookie: cookie, accessToken: token, userId, username, tokenSource: 'read' }
+    }
+    if (cookie.length === 0) {
+      throw new NowCodingLoginError(
+        'token-unavailable',
+        `signed in as ${username}, but the console answered neither a session cookie nor an access token`,
+      )
+    }
+    return { sessionCookie: cookie, userId, username }
   }
 
   return {
@@ -329,6 +359,7 @@ export function createPanelLogin(options: NowCodingLoginOptions): NowCodingPanel
         pending = { cookie: answer.cookie, username: name, expiresAt: now() + ttl }
         return { status: 'two-factor-required' }
       }
+      await acceptAgreement(answer.cookie)
       return { status: 'ok', credential: await credentialOf(data, answer.cookie, name) }
     },
 
@@ -358,11 +389,9 @@ export function createPanelLogin(options: NowCodingLoginOptions): NowCodingPanel
       if (data === undefined) {
         throw new NowCodingLoginError('unprocessable', 'the verification answer carries no account document')
       }
-      const credential = await credentialOf(
-        data,
-        answer.cookie.length > 0 ? answer.cookie : state.cookie,
-        state.username,
-      )
+      const cookie = answer.cookie.length > 0 ? answer.cookie : state.cookie
+      await acceptAgreement(cookie)
+      const credential = await credentialOf(data, cookie, state.username)
       pending = undefined
       return { status: 'ok', credential }
     },

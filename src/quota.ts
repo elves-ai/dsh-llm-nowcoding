@@ -7,9 +7,12 @@
  * - **Subscription** (a monthly plan) — `GET {origin}/api/subscription/self`.
  *   This is the console API and matches what the gateway's own console shows:
  *   the plan's allowance and its consumption against it. It authenticates with
- *   a dashboard access token plus `New-Api-User`; the `sk-` model key is
- *   rejected on this chain, which is why the plugin asks for a second
- *   credential before it can report this balance.
+ *   a dashboard access token, or with the session cookie an account sign-in
+ *   answered, plus the `New-Api-User` header either way; the `sk-` model key
+ *   is rejected on this chain, which is why the plugin asks for a console
+ *   credential before it can report this balance. When both credentials are
+ *   configured the token is tried first and the session cookie takes over
+ *   when the token is refused, so a sign-in alone is enough.
  * - **Pay-as-you-go wallet** — `GET {base}/dashboard/billing/{subscription,usage}`.
  *   This is the relay API and authenticates with the same `sk-` key chat uses.
  *
@@ -104,6 +107,8 @@ export interface NowCodingQuotaReaderOptions {
   panelToken?: string
   /** Dashboard user id sent as `New-Api-User`; required by the console chain. */
   panelUserId?: string
+  /** Sign-in session cookie (`session=…`); the console chain accepts it in place of the token. */
+  panelSession?: string
   /** Transport override; defaults to the global `fetch`. */
   fetchImpl?: typeof fetch
   /** Per-attempt timeout in milliseconds. */
@@ -312,20 +317,32 @@ export function createQuotaReader(options: NowCodingQuotaReaderOptions): NowCodi
     }
   }
 
-  /** The console chain's headers; the header is omitted rather than empty when no id is configured. */
-  function panelHeaders(): Record<string, string> {
-    const token = options.panelToken ?? ''
+  /** The console chain's token headers; the id header is omitted rather than empty when no id is configured. */
+  function tokenHeaders(): Record<string, string> {
     const userId = (options.panelUserId ?? '').trim()
     return {
-      authorization: `Bearer ${token}`,
+      authorization: `Bearer ${options.panelToken ?? ''}`,
+      ...userId.length === 0 ? {} : { 'new-api-user': userId },
+    }
+  }
+
+  /** The console chain's session-cookie headers: the credential the console's own browser holds. */
+  function cookieHeaders(): Record<string, string> {
+    const userId = (options.panelUserId ?? '').trim()
+    return {
+      cookie: options.panelSession ?? '',
       ...userId.length === 0 ? {} : { 'new-api-user': userId },
     }
   }
 
   /** Read the monthly plan's allowance, or undefined when none is active. */
-  async function readSubscription(origin: string, signal: AbortSignal | undefined): Promise<NowCodingQuotaSnapshot | undefined> {
+  async function readSubscription(
+    origin: string,
+    headers: Record<string, string>,
+    signal: AbortSignal | undefined,
+  ): Promise<NowCodingQuotaSnapshot | undefined> {
     const [payload, status] = await Promise.all([
-      get(origin + NOWCODING_SUBSCRIPTION_PATH, panelHeaders(), signal),
+      get(origin + NOWCODING_SUBSCRIPTION_PATH, headers, signal),
       get(origin + NOWCODING_STATUS_PATH, {}, signal),
     ])
     // The console chain answers HTTP 200 with success:false for a rejected
@@ -356,19 +373,44 @@ export function createQuotaReader(options: NowCodingQuotaReaderOptions): NowCodi
   return {
     async read(signal?: AbortSignal): Promise<NowCodingQuotaSnapshot> {
       const token = (options.panelToken ?? '').trim()
-      if (token.length > 0) {
-        const subscription = await readSubscription(new URL(options.baseURL).origin, signal)
-        if (subscription !== undefined) return subscription
-        // A dashboard token without an active plan is a normal state: the user
-        // holds a wallet balance instead, which the relay chain reports. That
-        // chain authenticates with the model key, which signing in does not
-        // supply, so a token-only account stops here with a reason.
-        if (options.apiKey.length === 0) {
-          throw new NowCodingQuotaError(
-            'unprocessable',
-            'this account has no active subscription plan, and no model API key is configured to read the wallet balance instead',
-          )
+      const cookie = (options.panelSession ?? '').trim()
+      const origin = new URL(options.baseURL).origin
+      let authenticated = false
+      let refused: NowCodingQuotaError | undefined
+      let subscription: NowCodingQuotaSnapshot | undefined
+
+      /** One console attempt; a refused credential is remembered, not raised. */
+      const attempt = async (headers: Record<string, string>): Promise<NowCodingQuotaSnapshot | undefined> => {
+        try {
+          const snapshot = await readSubscription(origin, headers, signal)
+          if (snapshot !== undefined) return snapshot
+          // Answered, but the account holds no plan: the credential itself is good.
+          authenticated = true
+          return undefined
+        } catch (error) {
+          if (error instanceof NowCodingQuotaError && error.code === 'unauthorized') {
+            refused = error
+            return undefined
+          }
+          throw error
         }
+      }
+
+      if (token.length > 0) subscription = await attempt(tokenHeaders())
+      if (subscription === undefined && cookie.length > 0) subscription = await attempt(cookieHeaders())
+      if (subscription !== undefined) return subscription
+      // A console credential the gateway refused must not be hidden behind the
+      // wallet balance the relay chain would still report.
+      if (refused !== undefined && !authenticated) throw refused
+      // A console credential without an active plan is a normal state: the user
+      // holds a wallet balance instead, which the relay chain reports. That
+      // chain authenticates with the model key, which signing in does not
+      // supply, so a keyless account stops here with a reason.
+      if (options.apiKey.length === 0) {
+        throw new NowCodingQuotaError(
+          'unprocessable',
+          'this account has no active subscription plan, and no model API key is configured to read the wallet balance instead',
+        )
       }
       return readBilling(signal)
     },

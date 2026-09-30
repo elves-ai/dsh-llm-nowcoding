@@ -2,18 +2,24 @@
  * Console sign-in for the NowCoding dashboard.
  *
  * The console chain that reports a monthly plan authenticates with a dashboard
- * access token plus the numeric user id, and the console issues both only after
+ * credential plus the numeric user id, and the console issues both only after
  * a username/password login. This module performs that login and returns the
- * pair. The password is an argument of one request: it is never stored, logged,
- * or echoed back, and the session cookie the console answers with lives in this
- * instance only until the credential comes out.
+ * pair: the session cookie the login answer carries is the credential, and the
+ * dashboard access token is read back beside it when the account holds one.
+ * The password is an argument of one request: it is never stored, logged, or
+ * echoed back, and the cookie leaves only as a settings write the caller makes.
  *
- * Two gateway behaviours decide the flow:
+ * Three gateway behaviours decide the flow:
  *
+ * - The session cookie is the credential the console's own browser uses — the
+ *   console routes accept `Cookie: session=…` beside `New-Api-User` — so a
+ *   sign-in succeeds once the cookie is in hand, whether or not the account
+ *   carries an access token.
  * - The token is read back over the session cookie rather than taken from the
- *   login answer, because the answer's own document does not reliably carry it.
- *   The one route that issues a token also rotates an existing one, so it is the
- *   last resort and only runs when the account holds no token to lose.
+ *   login answer, because the answer's own document does not reliably carry
+ *   it. Only routes that report a token are called: the one route that issues
+ *   a token also rotates an existing one, which would silently break every
+ *   other tool configured with the account's token, so it is never reached.
  * - A deployment can switch Turnstile on, which a non-browser client cannot
  *   solve. That state is reported as its own failure code rather than as a
  *   wrong password, because the user's fix is different.
@@ -30,7 +36,7 @@ export type NowCodingLoginFailure =
  | 'two-factor-unavailable'
 /** The deployment checks Turnstile, which only a browser can answer. */
  | 'turnstile-required'
-/** Signed in, but no dashboard token could be read for the account. */
+/** Signed in, but the console answered neither a session cookie nor a token. */
  | 'token-unavailable'
 /** The console could not be reached. */
  | 'unreachable'
@@ -45,19 +51,26 @@ export declare class NowCodingLoginError extends Error {
     readonly code: NowCodingLoginFailure;
     constructor(code: NowCodingLoginFailure, message: string);
 }
-/** The dashboard credential pair a completed sign-in yields. */
+/** The console credential pair a completed sign-in yields. */
 export interface NowCodingPanelCredential {
-    /** Dashboard access token, sent as `Authorization: Bearer` on the console chain. */
-    accessToken: string;
+    /**
+     * Session cookie the console issued, as the `Cookie` header to replay
+     * (`session=…`, joined with any other pair the answer set). The console
+     * chain accepts it in place of an access token.
+     */
+    sessionCookie: string;
+    /**
+     * Dashboard access token, sent as `Authorization: Bearer` on the console
+     * chain. Absent when no route reported one; the session cookie carries the
+     * chain either way.
+     */
+    accessToken?: string;
     /** Numeric account id, sent as `New-Api-User`. */
     userId: string;
     /** Account name the console reported, for the page's confirmation copy. */
     username: string;
-    /**
-     * Where the token came from. `read` reports a pre-existing token and
-     * `generated` a newly issued one, which rotates any token the account had.
-     */
-    tokenSource: 'login' | 'read' | 'generated';
+    /** Where the token came from: the login answer's own document, or a read-back. Absent when no token was obtained. */
+    tokenSource?: 'login' | 'read';
 }
 /** Answer of one sign-in step. */
 export type NowCodingLoginResult = {
