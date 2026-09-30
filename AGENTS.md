@@ -122,7 +122,7 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 
 `/nowcoding/api` is the only way the browser half reaches the Host. It is gated by the same browser-trust policy as the `/api` gateway: a loopback or configured trusted Host header, no `sec-fetch-site: cross-site`, and an `Origin` that matches when present. `isTrustedApiRequest` is copied from the sibling `dsh-web-search-firecrawl` plugin deliberately; keep the two in step and keep its tests if you add any.
 
-The success envelope is `{ ok: true, value }` and the failure envelope is `{ ok: false, error: { code, message } }`, owned jointly with `src/client/api.ts`. Changing one without the other breaks the card silently. The methods are `settings.get`, `settings.mutate`, `quota.get`, `models.list` (the key-scoped listing for the picker's allowlist), `panel.login`, and `panel.two-factor`; `models.list` rides the same error vocabulary as `quota.get`, so `writeError` maps both identically.
+The success envelope is `{ ok: true, value }` and the failure envelope is `{ ok: false, error: { code, message } }`, owned jointly with `src/client/api.ts`. Changing one without the other breaks the card silently. The methods are `settings.get`, `settings.mutate`, `quota.get`, `models.list` (the key-scoped listing for the picker's allowlist), `models.served` (exactly what the conversation picker lists with the current configuration — the page holds it against the app's own menu), `panel.login`, and `panel.two-factor`; `models.list` rides the same error vocabulary as `quota.get`, so `writeError` maps both identically.
 
 ### The browser half
 

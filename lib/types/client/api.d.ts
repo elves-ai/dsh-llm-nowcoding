@@ -120,6 +120,21 @@ export interface NowCodingModelListView {
  * @returns the listing.
  */
 export declare function getModelList(): Promise<NowCodingModelListView>;
+/** One picker entry as the conversation model selector serves it right now. */
+export interface NowCodingServedModelView {
+    id: string;
+    name: string;
+}
+/**
+ * Read exactly what the conversation model selector lists with the current
+ * configuration — the same inputs the adapter serves its picker from. The
+ * detail page holds this against the app's own menu: a model named here but
+ * missing from the menu is an app-layer gap, not a configuration one.
+ * @returns the served picker entries, in catalog order.
+ */
+export declare function getServedModels(): Promise<{
+    models: readonly NowCodingServedModelView[];
+}>;
 /** Read the redacted NowCoding settings document. */
 export declare function getNowCodingSettings(): Promise<NowCodingSettingsEnvelope>;
 /** Answer of `panel.login` and `panel.two-factor`; the credential itself stays on the Host. */

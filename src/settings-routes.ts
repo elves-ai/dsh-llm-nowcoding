@@ -20,7 +20,9 @@ import {
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
 import type { NowCodingResolvedOptions } from './config.ts'
+import { NOWCODING_PROVIDER_ROUTE } from './config.ts'
 import { createLiveModelLister, NowCodingModelsError } from './live-models.ts'
+import { listSelectableModels } from './models.ts'
 import {
   createPanelLogin,
   NowCodingLoginError,
@@ -130,6 +132,17 @@ export interface NowCodingRemoteModelView {
 /** Model-list payload returned by `models.list`. */
 export interface NowCodingModelListView {
   models: readonly NowCodingRemoteModelView[]
+}
+
+/** One picker entry as the conversation model selector serves it right now. */
+export interface NowCodingServedModelView {
+  id: string
+  name: string
+}
+
+/** Answer of `models.served`: exactly what the conversation picker lists. */
+export interface NowCodingServedModelsView {
+  models: readonly NowCodingServedModelView[]
 }
 
 /** Wire failure envelope of the NowCoding route. */
@@ -389,6 +402,21 @@ async function readModelCatalog(options: NowCodingResolvedOptions, fetchImpl: ty
   }
 }
 
+/**
+ * Project what the conversation model picker serves right now.
+ *
+ * The adapter computes its picker listing from exactly these inputs, so this
+ * is the ground truth the detail page can hold the selector against: if the
+ * page names a model the app's menu does not show, the gap is in the app
+ * layer, not in the configuration.
+ */
+function readServedModels(options: NowCodingResolvedOptions): NowCodingServedModelsView {
+  return {
+    models: listSelectableModels(NOWCODING_PROVIDER_ROUTE, options.catalog, options.visibleModels)
+      .map(entry => ({ id: entry.id, name: entry.name })),
+  }
+}
+
 /** Apply path ops through the settings seam and return the fresh redacted document. */
 async function mutateSettings(
   deps: NowCodingRouteDeps,
@@ -467,6 +495,8 @@ export async function dispatchNowCodingMethod(
       return readQuota(deps.options)
     case 'models.list':
       return readModelCatalog(deps.options, deps.fetchImpl)
+    case 'models.served':
+      return readServedModels(deps.options)
     case 'settings.mutate': {
       const body = requireObject(payload, 'settings.mutate')
       const ops = body.ops

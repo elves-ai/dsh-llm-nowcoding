@@ -103,6 +103,15 @@ export interface NowCodingRemoteModelView {
 export interface NowCodingModelListView {
     models: readonly NowCodingRemoteModelView[];
 }
+/** One picker entry as the conversation model selector serves it right now. */
+export interface NowCodingServedModelView {
+    id: string;
+    name: string;
+}
+/** Answer of `models.served`: exactly what the conversation picker lists. */
+export interface NowCodingServedModelsView {
+    models: readonly NowCodingServedModelView[];
+}
 /** Wire failure envelope of the NowCoding route. */
 export interface NowCodingRouteErrorBody {
     code: string;

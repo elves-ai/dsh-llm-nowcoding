@@ -251,6 +251,16 @@ describe('models.list', () => {
       .rejects.toMatchObject({ name: 'NowCodingModelsError', code: 'unauthorized' })
   })
 
+  it('reports exactly what the conversation picker serves', async () => {
+    const { deps } = modelDeps(() => status(200))
+    await expect(dispatchNowCodingMethod(deps, 'models.served', {})).resolves.toEqual({
+      models: [
+        { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+        { id: 'gpt-6-astra', name: 'GPT-6 Astra' },
+      ],
+    })
+  })
+
   it('stores a visibleModels allowlist through the settings seam', async () => {
     const { deps, settings } = depsOf(tokenConsole)
     await dispatchNowCodingMethod(deps, 'settings.mutate', {

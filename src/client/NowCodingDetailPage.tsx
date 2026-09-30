@@ -31,6 +31,7 @@ import {
   getModelList,
   getNowCodingSettings,
   getQuota,
+  getServedModels,
   isNowCodingApiKeyConfigured,
   isNowCodingPanelSessionConfigured,
   mutateNowCodingSettings,
@@ -170,6 +171,7 @@ export function NowCodingDetailPage(): ReactElement | null {
   const [modelListLoading, setModelListLoading] = useState(false)
   const [modelListError, setModelListError] = useState<string | null>(null)
   const [modelQuery, setModelQuery] = useState('')
+  const [served, setServed] = useState<readonly { id: string; name: string }[] | null>(null)
 
   const refreshQuota = useCallback(async (): Promise<void> => {
     setQuotaLoading(true)
@@ -183,6 +185,14 @@ export function NowCodingDetailPage(): ReactElement | null {
     }
   }, [])
 
+  const refreshServed = useCallback(async (): Promise<void> => {
+    try {
+      setServed((await getServedModels()).models)
+    } catch {
+      // The served list is informational; the model card renders without it.
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     void getNowCodingSettings().then((next) => {
@@ -191,13 +201,14 @@ export function NowCodingDetailPage(): ReactElement | null {
       setDrafts(draftsOf(next))
       setLoading(false)
       void refreshQuota()
+      void refreshServed()
     }).catch((caught: unknown) => {
       if (cancelled) return
       setError(messageOf(caught))
       setLoading(false)
     })
     return () => { cancelled = true }
-  }, [refreshQuota])
+  }, [refreshQuota, refreshServed])
 
   const applyOps = async (ops: NowCodingSettingsOp[]): Promise<void> => {
     if (envelope === null || envelope.writable === false) return
@@ -210,6 +221,7 @@ export function NowCodingDetailPage(): ReactElement | null {
       setDrafts(draftsOf(next))
       setNotice('已保存，新配置立即用于下一次请求。')
       void refreshQuota()
+      void refreshServed()
     } catch (caught) {
       setError(messageOf(caught))
       // A conflict means another surface committed since this page read the
@@ -477,6 +489,15 @@ export function NowCodingDetailPage(): ReactElement | null {
 
       <div className={css.card}>
         <p className={css.cardIntro}>模型白名单：勾选要保留的模型，模型选择器就只列出这些；一个都不勾选时显示全部目录模型。列表拉取自站方按当前 Key 返回的可用模型，保存后生效。</p>
+
+        {served !== null && served.length > 0 && (
+          <p className={css.hint}>
+            对话时的模型选择器（NowCoding 分组）当前会列出：{served.map(model => model.id).join('、')}。
+          </p>
+        )}
+        {served !== null && served.length === 0 && (
+          <p className={css.error} role="alert">当前配置下，对话时的模型选择器不会列出任何 NowCoding 模型；请在下方勾选至少一个要保留的模型并保存。</p>
+        )}
 
         <div className={css.row}>
           <div className={css.rowText}>
