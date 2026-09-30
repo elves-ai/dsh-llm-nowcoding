@@ -70,6 +70,28 @@ describe('dsh-market update API face', () => {
     await expect(down.client.discover()).resolves.toBeNull()
   })
 
+  it('passes the desktop runtime through, the signal mutation controls gate on', async () => {
+    const { client } = clientWith(() => answer({
+      schema: SCHEMA,
+      marketVersion: '1.66.6',
+      profile: 'desktop',
+      // The market offers the mutation endpoint even on the desktop app, where
+      // every mutation refuses because the app owns its profile; `runtime` is
+      // the machine-readable signal a client hides its update button behind.
+      runtime: 'desktop',
+      features: { check: true, update: true, restart: false },
+      restart: { supported: false, managedBy: 'desktop-host' },
+    }))
+
+    await expect(client.discover()).resolves.toEqual({
+      marketVersion: '1.66.6',
+      runtime: 'desktop',
+      canCheck: true,
+      canUpdate: true,
+      canRestart: false,
+    })
+  })
+
   it('checks this package by its encoded scoped name, forced on demand', async () => {
     const { client, sent } = clientWith(request => request.url.includes('force=1')
       ? answer({ schema: SCHEMA, package: { name: '@elves-ai/dsh-llm-nowcoding', source: 'github', installedVersion: '0.1.0', latestVersion: '0.2.0', updateAvailable: true } })

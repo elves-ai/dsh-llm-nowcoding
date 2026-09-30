@@ -55,7 +55,7 @@ pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 Append `#<ref>` to pin a tag or a commit, which is what a reproducible profile wants:
 
 ```sh
-dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.0
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.1
 ```
 
 `dsh plugin` forwards to pnpm inside the profile directory and appends the package to the profile's bundle list automatically. The bundle patch mounts the `llm-nowcoding` row with `apiKeyEnv: NOWCODING_API_KEY`, so an environment variable works before anything is configured.
@@ -197,7 +197,7 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 
 ## Update
 
-The detail page carries an update card that updates the plugin in place, through the public update API v1 the **dsh-market** plugin exposes on the same Host: one cached check on open, a forced re-check button, a one-click update with live install progress, and the page reload or Host restart the outcome asks for. It works for this plugin's git install too — the market compares a `github:` source against the repository's current HEAD. Discovery is the feature gate: without dsh-market (or with a version that ships no update API) the card renders the manual command below instead of controls, and it never spawns a package manager itself.
+The detail page carries an update card that updates the plugin in place, through the public update API v1 the **dsh-market** plugin exposes on the same Host: one cached check on open, a forced re-check button, a one-click update with live install progress, and the page reload or Host restart the outcome asks for. It works for this plugin's git install too — the market compares a `github:` source against the repository's current HEAD. Discovery is the feature gate: without dsh-market (or with a version that ships no update API) the card renders the manual command below instead of controls, and it never spawns a package manager itself. On the official desktop app the market reports `runtime: "desktop"` and the card switches to a pointer at the app's own **Settings → Plugins** — the app owns its profile there, so every in-page mutation is refused no matter what `features.update` says.
 
 When the card is unavailable, update from a terminal:
 
@@ -262,6 +262,7 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 - **The sign-in session expires on the console's clock.** It is the credential the console's own browser holds; when the console retires it the card reports a rejected credential until you sign in again. The access token, when the account has one, is the fallback that does not expire.
 - **Sign-in is a password login, not OAuth.** The gateway can offer GitHub, LinuxDO, WeChat, Telegram, and OIDC sign-in; all are off on this deployment, and an OAuth flow would need a browser redirect this plugin cannot host. Username and password, plus 2FA, is the supported path.
 - **A Turnstile deployment cannot be signed into from here.** Only a browser can solve the challenge; the manual token field remains the way in.
+- **In-page updates do not run on the official desktop app.** The app owns its `desktop` profile and the market refuses every mutation against it; the update card detects that via the market's `runtime` report and points at the app's **Settings → Plugins** instead.
 - **Client copy is inline Chinese.** The Harness expects product copy in typed locale dictionaries, which needs `@deepseek-ai/dsh-client-locale` and a locale registration; that is later work.
 - **No account rotation.** One key per route; a second account is a second profile or a second environment variable.
 

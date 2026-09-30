@@ -55,7 +55,7 @@ pnpm dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding
 在末尾加 `#<ref>` 可以固定到某个 tag 或 commit，profile 需要可复现时建议这样写：
 
 ```sh
-dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.0
+dsh plugin --profile web add github:elves-ai/dsh-llm-nowcoding#v0.1.1
 ```
 
 `dsh plugin` 会在 profile 目录里转发给 pnpm，并把本包自动追加到 profile 的 bundle 列表。bundle 补丁挂载 `llm-nowcoding` 这一行并带上 `apiKeyEnv: NOWCODING_API_KEY`，所以还没做任何配置时环境变量也能用。
@@ -197,7 +197,7 @@ GET {baseURL}/dashboard/billing/usage          ->  { total_usage, ... }
 
 ## 更新
 
-详情页自带更新卡片，可以直接在页面内更新本插件 —— 走的是 **dsh-market** 插件在同一 Host 上暴露的公开更新接口 v1：打开时做一次带缓存的检查，可强制重新检查，一键更新并显示安装进度，完成后按结果提示刷新页面或重启 Host。GitHub 方式安装的包同样适用 —— 市场会把 `github:` 来源与仓库当前 HEAD 比较。发现接口是功能开关：没有装 dsh-market（或版本太旧没有这套 API）时，卡片只会显示下面的手动命令，插件自己不会另起包管理器。
+详情页自带更新卡片，可以直接在页面内更新本插件 —— 走的是 **dsh-market** 插件在同一 Host 上暴露的公开更新接口 v1：打开时做一次带缓存的检查，可强制重新检查，一键更新并显示安装进度，完成后按结果提示刷新页面或重启 Host。GitHub 方式安装的包同样适用 —— 市场会把 `github:` 来源与仓库当前 HEAD 比较。发现接口是功能开关：没有装 dsh-market（或版本太旧没有这套 API）时，卡片只会显示下面的手动命令，插件自己不会另起包管理器。官方桌面客户端里市场会报告 `runtime: "desktop"`，卡片随即改为指向应用自己的「设置 → 插件」—— 那里的 profile 由应用独占，无论 `features.update` 说什么，页面内的更新操作都会被拒绝。
 
 卡片不可用时，在终端手动更新：
 
@@ -262,6 +262,7 @@ pnpm run build            # tsc 产出 lib/types，再由 tsdown 打包
 - **登录会话按站方的时钟过期。** 它就是控制台自己的浏览器持有的那份凭据；站方将其作废后，卡片会报告凭据被拒，重新登录一次即可。账号已有的访问令牌不会过期，是这条链的兜底凭据。
 - **登录是账号密码登录，不是 OAuth。** 站方可以开启 GitHub、LinuxDO、微信、Telegram 与 OIDC 登录，本部署全部关闭；而且 OAuth 需要浏览器回调，插件无法承载。支持的路径是账号密码加 2FA。
 - **站方开启 Turnstile 后无法在插件里登录。** 人机校验只有浏览器能过，此时请改用手动填写令牌。
+- **官方桌面客户端里页面内更新不可用。** 应用的 `desktop` profile 由应用独占，市场对它的一切变更操作都会拒绝；更新卡片通过市场的 `runtime` 报告识别这种环境，改为指向应用自己的「设置 → 插件」。
 - **浏览器端文案内联在组件里（中文）。** Harness 期望产品文案走类型化语言字典，这需要 `@deepseek-ai/dsh-client-locale` 与 locale 注册，属于后续工作。
 - **不支持多账号轮换。** 一个路由一个 Key；第二个账号就是第二个 profile 或第二个环境变量。
 

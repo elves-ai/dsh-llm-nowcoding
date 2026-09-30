@@ -341,7 +341,10 @@ export function NowCodingDetailPage(): ReactElement | null {
 
   // ---- The update card. Discovery is the feature gate: without the market's
   // public API the card degrades to the manual command, by that contract's
-  // own compatibility policy.
+  // own compatibility policy. On the official desktop app the market reports
+  // `runtime: "desktop"` while still offering `features.update: true` — the
+  // mutation itself refuses there, because the app owns its profile, so the
+  // button is hidden and the app's own Plugins page is the way in.
 
   const [updateCapsState, setUpdateCapsState] = useState<'loading' | 'absent' | 'ready'>('loading')
   const [updateCaps, setUpdateCaps] = useState<MarketUpdateCapabilities | null>(null)
@@ -532,7 +535,9 @@ export function NowCodingDetailPage(): ReactElement | null {
   }
 
   /** The check view: current version, and the update action when one exists. */
-  const renderUpdateCheckView = (): ReactElement => (
+  const renderUpdateCheckView = (): ReactElement => {
+    const desktopRuntime = updateCaps?.runtime === 'desktop'
+    return (
     <>
       <div className={css.row}>
         <div className={css.rowText}>
@@ -545,31 +550,43 @@ export function NowCodingDetailPage(): ReactElement | null {
           </button>
         </div>
       </div>
-      {(updateCheckError !== null || (updateCheck?.updateAvailable ?? false)) && (
+      {updateCheckError !== null && (
         <div className={css.row}>
           <div className={css.rowText}>
-            {updateCheckError !== null && <span className={css.error} role="alert">{updateFailureText(updateCheckError)}</span>}
-            {updateCheckError === null && updateCheck !== null && (
-              <span className={css.desc}>有可用更新：{updateCheck.installedVersion ?? '未知'} → {updateCheck.latestVersion ?? '未知'}</span>
-            )}
+            <span className={css.error} role="alert">{updateFailureText(updateCheckError)}</span>
+          </div>
+        </div>
+      )}
+      {updateCheckError === null && (updateCheck?.updateAvailable ?? false) && (desktopRuntime ? (
+        <div className={css.row}>
+          <div className={css.rowText}>
+            <span className={css.title}>有可用更新：{updateCheck?.installedVersion ?? '未知'} → {updateCheck?.latestVersion ?? '未知'}</span>
+            <span className={css.desc}>桌面端插件由应用自己管理，请在官方桌面客户端的「设置 → 插件」里完成更新；页面内的更新接口无法修改桌面 profile。</span>
+          </div>
+        </div>
+      ) : (
+        <div className={css.row}>
+          <div className={css.rowText}>
+            <span className={css.desc}>有可用更新：{updateCheck?.installedVersion ?? '未知'} → {updateCheck?.latestVersion ?? '未知'}</span>
           </div>
           <div className={css.control}>
-            {updateCheckError === null && updateCheck !== null && (updateCaps?.canUpdate ?? false) && (
+            {(updateCaps?.canUpdate ?? false) && (
               <button type="button" className={css.buttonPrimary} onClick={() => { void startUpdate(false) }}>更新</button>
             )}
-            {updateCheckError === null && updateCheck !== null && !(updateCaps?.canUpdate ?? false) && (
+            {!(updateCaps?.canUpdate ?? false) && (
               <span className={css.hint}>当前 dsh-market 版本不提供更新操作。</span>
             )}
           </div>
         </div>
-      )}
+      ))}
       {updateError !== null && (
         <div className={css.row}>
           <p className={css.error} role="alert">{updateFailureText(updateError)}</p>
         </div>
       )}
     </>
-  )
+    )
+  }
 
   return (
     <div className={css.section}>
@@ -881,7 +898,7 @@ export function NowCodingDetailPage(): ReactElement | null {
       </div>
 
       <div className={css.card}>
-        <p className={css.cardIntro}>插件更新经由 dsh-market 插件市场的公开更新接口完成：检查、下载与安装都在市场一侧执行；更新后按提示刷新页面或重启 Host。</p>
+        <p className={css.cardIntro}>插件更新经由 dsh-market 插件市场的公开更新接口完成：检查、下载与安装都在市场一侧执行；更新后按提示刷新页面或重启 Host。官方桌面客户端的插件由应用自己管理，页面内只做检查，更新请在「设置 → 插件」里完成。</p>
         {updateCapsState === 'loading' && (
           <div className={css.row}><p className={css.hint}>正在检测 dsh-market 插件市场…</p></div>
         )}
