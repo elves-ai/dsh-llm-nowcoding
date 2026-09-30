@@ -1,15 +1,11 @@
 /**
  * Client wire face for the plugin's own fenced `/nowcoding/api` route.
  *
- * DRAFT (not installed): this is the on-disk `src/client/api.ts` extended with
- * the settings-half methods the brief's settings page needs. Every export the
- * existing file had is preserved verbatim, so the existing quota card keeps
- * compiling; the additions are the settings envelope, the path ops, the two
- * settings calls, and the commit notification the card can subscribe to.
- *
  * Wire contract, owned jointly with `src/settings-routes.ts`: one POST per
  * method, body `{ method, payload }`, answer `{ ok: true, value }` or
- * `{ ok: false, error: { code, message } }`.
+ * `{ ok: false, error: { code, message } }`. The methods cover the settings
+ * document, the quota read, the console sign-in, and the key-scoped model
+ * listing the detail page's allowlist is chosen from.
  *
  * @module @elves-ai/dsh-llm-nowcoding/client/api
  */
@@ -80,6 +76,8 @@ export interface NowCodingSettingsView {
     fastServiceTier?: NowCodingFastServiceTier;
     /** Show the remaining-quota card at the sidebar foot. */
     quotaCard?: boolean;
+    /** Model allowlist the picker narrows to; empty shows the whole catalog. */
+    visibleModels?: readonly string[];
 }
 /** One path-addressed settings edit sent to the Host route. */
 export type NowCodingSettingsOp = {
@@ -101,6 +99,27 @@ export declare class NowCodingApiError extends Error {
  * @returns the balance view; `snapshot` is null until a key is configured.
  */
 export declare function getQuota(signal?: AbortSignal): Promise<NowCodingQuotaView>;
+/** One model of the key-scoped listing as `models.list` reports it. */
+export interface NowCodingRemoteModelView {
+    /** The wire model id, verbatim. */
+    id: string;
+    /** Gateway-side owner tag, present when the listing carries one. */
+    ownedBy?: string;
+    /** Whether the served catalog describes the id, so the picker can list it once kept. */
+    known: boolean;
+}
+/** Answer of `models.list`. */
+export interface NowCodingModelListView {
+    models: readonly NowCodingRemoteModelView[];
+}
+/**
+ * Read the key-scoped model listing the picker's allowlist is chosen from.
+ *
+ * Every id the answer carries is one the configured key can serve; `known`
+ * adds whether the plugin's served catalog can also describe it.
+ * @returns the listing.
+ */
+export declare function getModelList(): Promise<NowCodingModelListView>;
 /** Read the redacted NowCoding settings document. */
 export declare function getNowCodingSettings(): Promise<NowCodingSettingsEnvelope>;
 /** Answer of `panel.login` and `panel.two-factor`; the credential itself stays on the Host. */

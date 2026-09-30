@@ -45,6 +45,8 @@ export interface NowCodingRouteDeps {
     options: NowCodingResolvedOptions;
     /** Console sign-in, held across requests so a two-factor challenge survives the gap. */
     login: NowCodingPanelLogin;
+    /** Transport override for the gateway reads; production uses the global `fetch`. */
+    fetchImpl?: typeof fetch;
 }
 /** Answer of the two sign-in methods; the credential itself never rides it. */
 export type NowCodingLoginAnswer = {
@@ -87,6 +89,19 @@ export interface NowCodingQuotaView {
     currency: string;
     /** Seconds the card should wait before refreshing again. */
     refreshSeconds: number;
+}
+/** One model of the key-scoped listing as `models.list` reports it. */
+export interface NowCodingRemoteModelView {
+    /** The wire model id, verbatim. */
+    id: string;
+    /** Gateway-side owner tag, present when the listing carries one. */
+    ownedBy?: string;
+    /** Whether the served catalog describes the id, so the picker can list it once kept. */
+    known: boolean;
+}
+/** Model-list payload returned by `models.list`. */
+export interface NowCodingModelListView {
+    models: readonly NowCodingRemoteModelView[];
 }
 /** Wire failure envelope of the NowCoding route. */
 export interface NowCodingRouteErrorBody {

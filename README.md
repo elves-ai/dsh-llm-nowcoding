@@ -24,9 +24,10 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 
 - **A `nowcoding` provider route.** Install into any dsh profile; the route appears in the model picker with the shipped catalog, and serves OpenAI-compatible streaming chat completions.
 - **Built-in model catalog.** The models the gateway publishes are shipped in the plugin, with context windows, output caps, input modalities, reasoning levels, and fast-tier capability. A `models` list replaces it; `modelOverrides` reshapes single entries; nothing about the catalog is compiled into the adapter.
+- **Model allowlist with a live picker.** The detail page fetches the key-scoped `GET /v1/models` listing through the plugin's route and renders it as a searchable checklist; the models you keep are the ones the picker serves (`visibleModels`), and the decision applies without a restart.
 - **GPT fast mode.** Fast-capable GPT models get a second picker entry (`gpt-5.6-sol-fast`) that sends the same wire model with `service_tier`; a route default turns it on for every fast-capable model. See [Fast mode](#fast-mode) for the caveat that actually decides whether it takes effect.
 - **Selectable reasoning levels.** Each model declares the levels its picker offers and the spelling the request sends, so the level ids never leak into the wire format.
-- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, the sidebar switch, the console sign-in, and a balance block with a manual refresh. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
+- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, the sidebar switch, the model allowlist, the console sign-in, and a balance block with a manual refresh. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
 - **Remaining-quota reader.** A card at the sidebar foot, directly beside Settings, shows either a monthly plan's allowance — read from the console with a dashboard token or the session cookie an account sign-in answers — or the pay-as-you-go wallet read with the same key chat uses.
 - **Live settings.** API key, endpoint, fast mode, and the sidebar switch are editable on the detail page and apply to the next request without a restart.
 
@@ -79,6 +80,7 @@ Open the sidebar's **Plugins** page and click **NowCoding**. The page reaches th
 | Fast mode | off | Send `service_tier` on every fast-capable model. |
 | Fast tier value | `priority` | Wire spelling: `priority` (the pre-rename spelling, safest on a gateway that predates it) or `fast`. |
 | Sidebar balance card | on | Show the remaining-quota card above Settings in the left sidebar. |
+| Kept models | empty → all | Model allowlist chosen on the detail page: fetch the listing, check the models to keep, and the picker serves only those. See **Models** below. |
 | Panel user ID | written by sign-in | Dashboard user id sent as `New-Api-User`; the console chain needs it beside the token or the sign-in session alike. The page no longer offers manual entry, and sign-in writes it; a profile can still pin the value. |
 | Panel access token | written by sign-in | Dashboard token from the console's system-access-token page. The console chain rejects the `sk-` key, so a plan's allowance needs this token or a sign-in session. The page no longer offers manual entry: sign-in stores the session and reads this token when the account has one. |
 
@@ -115,6 +117,9 @@ A model list is a moving target on a relay, so the catalog is a starting point r
 | Serve a different line-up | `models: [{ id: acme-think, contextWindow: 262144, maxTokens: 32768, input: [text, image] }]` replaces the shipped catalog. Each entry defaults its unset fields from the shipped model of the same id. |
 | Correct one shipped model | `modelOverrides: { gpt-5.6-sol: { contextWindow: 200000 } }` reshapes that model and leaves the rest alone. |
 | Drop a model from the picker | `hiddenModels: [grok-4.3]`. |
+| Keep only a hand-picked set | `visibleModels: [gpt-5.6-sol, claude-opus-5]` narrows the picker to those ids; empty shows everything. Written by the detail page's model card, or pin it in a profile. |
+
+**Picking the kept models on the detail page.** The model card's **fetch** button asks the Host to read `GET {base}/v1/models` with the configured key — the key-scoped listing, so every id it returns is one the key can actually serve — and renders it as a searchable checklist. Checking rows drafts the allowlist; saving commits it, and the picker takes it on its next open. Three honest signals ride along: an id the served catalog does not know is marked 目录外 (kept, but the picker cannot describe it until the catalog learns it); once a listing is loaded, drafted ids the listing no longer carries get a one-click **clean stale**; and **show all** clears the allowlist. The allowlist narrows the picker only — a kept-but-unknown id resolves fine when requested exactly, and fast aliases stay listed while their base model is kept.
 
 Model ids reach the gateway verbatim: a near miss surfaces as a provider error on the first request rather than as a silently substituted model. The gateway's own public lineup is at `GET https://nowcoding.ai/api/pricing`, which needs no credential and is the fastest way to check whether an id still exists.
 

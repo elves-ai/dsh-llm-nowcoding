@@ -12,7 +12,7 @@ import {
   NOWCODING_DISPLAY_CURRENCY_SYMBOL,
   NOWCODING_SETTINGS_NAMESPACE,
 } from '../src/settings-shared.ts'
-import { answer, transport, type Sent } from './console-fetch.ts'
+import { answer, status, transport, type Sent } from './console-fetch.ts'
 
 /** A keyless route: every method here either answers from settings or from the console. */
 const OPTIONS: NowCodingResolvedOptions = {
@@ -22,6 +22,7 @@ const OPTIONS: NowCodingResolvedOptions = {
   fast: false,
   fastServiceTier: 'priority',
   catalog: [],
+  visibleModels: [],
   quotaCard: true,
   panelToken: '',
   panelUserId: '',
@@ -196,6 +197,73 @@ describe('the fenced route dispatch', () => {
   it('refuses an unknown method', async () => {
     const { deps } = depsOf(tokenConsole)
     await expect(dispatchNowCodingMethod(deps, 'panel.logout', {})).rejects.toMatchObject({ code: 'not-found' })
+  })
+})
+
+describe('models.list', () => {
+  /** A configured route: the key fetches the listing, the catalog decides `known`. */
+  const MODEL_OPTIONS: NowCodingResolvedOptions = {
+    ...OPTIONS,
+    apiKey: 'sk-test',
+    catalog: [
+      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', contextWindow: 400_000, maxTokens: 128_000, input: ['text'] },
+      { id: 'gpt-6-astra', name: 'GPT-6 Astra', contextWindow: 400_000, maxTokens: 128_000, input: ['text'] },
+    ],
+  }
+
+  /** Route dependencies over a recording gateway transport. */
+  function modelDeps(script: (sent: Sent) => Response) {
+    const settings = settingsDouble()
+    const { fetchImpl, sent } = transport(script)
+    const login = createPanelLogin({ baseURL: () => OPTIONS.baseURL, fetchImpl })
+    const deps: NowCodingRouteDeps = { settings: settings.face, options: MODEL_OPTIONS, login, fetchImpl }
+    return { deps, sent }
+  }
+
+  it('refuses to fetch before an API key is configured', async () => {
+    const { deps } = depsOf(tokenConsole)
+    await expect(dispatchNowCodingMethod(deps, 'models.list', {}))
+      .rejects.toMatchObject({ code: 'unauthorized', status: 401 })
+  })
+
+  it('annotates the key-scoped listing with catalog knowledge', async () => {
+    const { deps, sent } = modelDeps(() => answer({
+      object: 'list',
+      success: true,
+      data: [
+        { id: 'gpt-5.6-sol', object: 'model', owned_by: 'custom' },
+        { id: 'brand-new-model', object: 'model', owned_by: 'custom' },
+      ],
+    }))
+    await expect(dispatchNowCodingMethod(deps, 'models.list', {})).resolves.toEqual({
+      models: [
+        { id: 'gpt-5.6-sol', ownedBy: 'custom', known: true },
+        { id: 'brand-new-model', ownedBy: 'custom', known: false },
+      ],
+    })
+    expect(sent[0]?.path).toBe('/v1/models')
+    expect(sent[0]?.headers.get('authorization')).toBe('Bearer sk-test')
+  })
+
+  it('refuses the listing when the gateway rejects the key', async () => {
+    const { deps } = modelDeps(() => status(401))
+    await expect(dispatchNowCodingMethod(deps, 'models.list', {}))
+      .rejects.toMatchObject({ name: 'NowCodingModelsError', code: 'unauthorized' })
+  })
+
+  it('stores a visibleModels allowlist through the settings seam', async () => {
+    const { deps, settings } = depsOf(tokenConsole)
+    await dispatchNowCodingMethod(deps, 'settings.mutate', {
+      ops: [{ op: 'set', path: ['visibleModels'], value: ['gpt-5.6-sol'] }],
+    })
+    expect(settings.value()).toMatchObject({ visibleModels: ['gpt-5.6-sol'] })
+  })
+
+  it('refuses a visibleModels value that is not an array of ids', async () => {
+    const { deps } = depsOf(tokenConsole)
+    await expect(dispatchNowCodingMethod(deps, 'settings.mutate', {
+      ops: [{ op: 'set', path: ['visibleModels'], value: 'gpt-5.6-sol' }],
+    })).rejects.toMatchObject({ code: 'bad-request' })
   })
 })
 

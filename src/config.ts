@@ -8,8 +8,9 @@
  * captures a value — it reads `.get()` at the start of each operation, which is
  * what makes a settings commit reach the next request.
  *
- * The structural fields (`models`, `modelOverrides`, `hiddenModels`) are
- * volatile too, so a catalog correction applies as soon as it is saved.
+ * The structural fields (`models`, `modelOverrides`, `hiddenModels`,
+ * `visibleModels`) are volatile too, so a catalog correction applies as soon as
+ * it is saved.
  *
  * @module @elves-ai/dsh-llm-nowcoding/config
  */
@@ -141,6 +142,8 @@ export interface Config {
   modelOverrides: Volatile<Record<string, NowCodingModelOverride> | undefined>
   /** Ids kept out of the picker without leaving the catalog. */
   hiddenModels: Volatile<string[] | undefined>
+  /** Allowlist the picker narrows to; empty or absent shows the whole catalog. */
+  visibleModels: Volatile<string[] | undefined>
   /** Context capacity for a model neither the entry nor the shipped catalog sizes. */
   defaultContextWindow: Volatile<number>
   /** Output capability for a model neither the entry nor the shipped catalog sizes. */
@@ -203,6 +206,7 @@ export const Config = z.object({
   models: z.array(modelSpec).volatile(),
   modelOverrides: z.dict(modelOverride).volatile(),
   hiddenModels: z.array(z.string()).volatile(),
+  visibleModels: z.array(z.string()).volatile(),
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW).volatile(),
   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS).volatile(),
   requestTimeoutMs: z.number().step(1).min(1).default(NOWCODING_DEFAULT_REQUEST_TIMEOUT_MS).volatile(),
@@ -285,6 +289,8 @@ export interface NowCodingResolvedOptions {
   fastServiceTier: NowCodingFastServiceTier
   /** The served catalog. */
   catalog: readonly ResolvedNowCodingModel[]
+  /** Allowlist the picker narrows to; empty shows the whole catalog. */
+  visibleModels: readonly string[]
   /** Whether the sidebar quota card is shown. */
   quotaCard: boolean
   /** Dashboard access token; empty leaves the reader on the session cookie, then the relay pair. */
@@ -318,6 +324,10 @@ export function resolveNowCodingOptions(ctx: Context, config: Config): NowCoding
   const envName = config.apiKeyEnv.get()
   const envValue = apiKey.length > 0 ? '' : launchEnvironmentOf(ctx).get(envName)?.value ?? ''
   const baseURL = config.baseURL.get()
+  const rawVisible = config.visibleModels.get()
+  const visibleModels = Array.isArray(rawVisible)
+    ? [...new Set(rawVisible.map(id => typeof id === 'string' ? id.trim() : '').filter(id => id.length > 0))]
+    : []
   return {
     apiKey: apiKey.length > 0 ? apiKey : envValue,
     baseURL: typeof baseURL === 'string' && baseURL.trim().length > 0 ? baseURL.trim() : NOWCODING_DEFAULT_BASE_URL,
@@ -331,6 +341,7 @@ export function resolveNowCodingOptions(ctx: Context, config: Config): NowCoding
       defaultContextWindow: config.defaultContextWindow.get(),
       defaultMaxTokens: config.defaultMaxTokens.get(),
     }),
+    visibleModels,
     quotaCard: config.quotaCard.get(),
     panelToken: config.panelToken.get()?.trim() ?? '',
     panelUserId: config.panelUserId.get()?.trim() ?? '',

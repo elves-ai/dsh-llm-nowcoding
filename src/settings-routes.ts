@@ -20,6 +20,7 @@ import {
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
 import type { NowCodingResolvedOptions } from './config.ts'
+import { createLiveModelLister, NowCodingModelsError } from './live-models.ts'
 import {
   createPanelLogin,
   NowCodingLoginError,
@@ -66,6 +67,8 @@ export interface NowCodingRouteDeps {
   options: NowCodingResolvedOptions
   /** Console sign-in, held across requests so a two-factor challenge survives the gap. */
   login: NowCodingPanelLogin
+  /** Transport override for the gateway reads; production uses the global `fetch`. */
+  fetchImpl?: typeof fetch
 }
 
 /** Answer of the two sign-in methods; the credential itself never rides it. */
@@ -112,6 +115,21 @@ export interface NowCodingQuotaView {
   currency: string
   /** Seconds the card should wait before refreshing again. */
   refreshSeconds: number
+}
+
+/** One model of the key-scoped listing as `models.list` reports it. */
+export interface NowCodingRemoteModelView {
+  /** The wire model id, verbatim. */
+  id: string
+  /** Gateway-side owner tag, present when the listing carries one. */
+  ownedBy?: string
+  /** Whether the served catalog describes the id, so the picker can list it once kept. */
+  known: boolean
+}
+
+/** Model-list payload returned by `models.list`. */
+export interface NowCodingModelListView {
+  models: readonly NowCodingRemoteModelView[]
 }
 
 /** Wire failure envelope of the NowCoding route. */
@@ -176,6 +194,14 @@ function writeError(res: ServerResponse, error: unknown): void {
   if (error instanceof NowCodingQuotaError) {
     // 401 keeps the browser's own error handling honest: the credential, not
     // the request, is what failed.
+    writeJson(res, error.code === 'unauthorized' ? 401 : 502, {
+      ok: false,
+      error: { code: error.code, message: error.message },
+    })
+    return
+  }
+  if (error instanceof NowCodingModelsError) {
+    // Same vocabulary, same mapping: a refused key is the caller's to fix.
     writeJson(res, error.code === 'unauthorized' ? 401 : 502, {
       ok: false,
       error: { code: error.code, message: error.message },
@@ -257,6 +283,11 @@ function validateOp(op: unknown): asserts op is SettingsPathOp {
         throw new NowCodingRouteError('bad-request', `"fastServiceTier" must be one of: ${FAST_TIERS.join(', ')}`)
       }
       return
+    case 'visibleModels':
+      if (!Array.isArray(value) || !value.every(item => typeof item === 'string')) {
+        throw new NowCodingRouteError('bad-request', '"visibleModels" must be an array of model ids')
+      }
+      return
     default:
       throw new NowCodingRouteError('bad-request', `settings field must be one of: ${NOWCODING_SETTINGS_FIELDS.join(', ')}`)
   }
@@ -328,6 +359,34 @@ async function readQuota(options: NowCodingResolvedOptions): Promise<NowCodingQu
     panelSession: options.panelSession,
   })
   return { ...shared, snapshot: await reader.read() }
+}
+
+/**
+ * Read the key-scoped model listing for the picker's allowlist.
+ *
+ * The answer annotates every id with whether the served catalog describes it:
+ * a checked id the catalog does not know is stored faithfully, but the picker
+ * cannot offer it until the catalog learns it, and the page says so instead of
+ * letting the id disappear silently.
+ */
+async function readModelCatalog(options: NowCodingResolvedOptions, fetchImpl: typeof fetch | undefined): Promise<NowCodingModelListView> {
+  if (options.apiKey.length === 0) {
+    throw new NowCodingRouteError('unauthorized', 'no API key is configured; save one before fetching the model list', 401)
+  }
+  const lister = createLiveModelLister({
+    baseURL: options.baseURL,
+    apiKey: options.apiKey,
+    ...fetchImpl === undefined ? {} : { fetchImpl },
+  })
+  const models = await lister.list()
+  const known = new Set(options.catalog.map(entry => entry.id))
+  return {
+    models: models.map(model => ({
+      id: model.id,
+      known: known.has(model.id),
+      ...model.ownedBy === undefined ? {} : { ownedBy: model.ownedBy },
+    })),
+  }
 }
 
 /** Apply path ops through the settings seam and return the fresh redacted document. */
@@ -406,6 +465,8 @@ export async function dispatchNowCodingMethod(
       return requireView(deps)
     case 'quota.get':
       return readQuota(deps.options)
+    case 'models.list':
+      return readModelCatalog(deps.options, deps.fetchImpl)
     case 'settings.mutate': {
       const body = requireObject(payload, 'settings.mutate')
       const ops = body.ops

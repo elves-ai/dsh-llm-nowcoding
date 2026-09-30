@@ -80,12 +80,14 @@ export class NowCodingAdapter extends LlmAdapter {
   }
 
   /**
-   * List the model picker's entries, fast aliases included.
+   * List the model picker's entries, fast aliases included, narrowed to the
+   * configured `visibleModels` allowlist when one is set.
    * @param provider - one provider route owned by this adapter.
    * @returns one entry per selectable row, in catalog order.
    */
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve(listSelectableModels(provider, this.settings().catalog))
+    const settings = this.settings()
+    return Promise.resolve(listSelectableModels(provider, settings.catalog, settings.visibleModels))
   }
 
   /**

@@ -8,8 +8,9 @@
  * captures a value — it reads `.get()` at the start of each operation, which is
  * what makes a settings commit reach the next request.
  *
- * The structural fields (`models`, `modelOverrides`, `hiddenModels`) are
- * volatile too, so a catalog correction applies as soon as it is saved.
+ * The structural fields (`models`, `modelOverrides`, `hiddenModels`,
+ * `visibleModels`) are volatile too, so a catalog correction applies as soon as
+ * it is saved.
  *
  * @module @elves-ai/dsh-llm-nowcoding/config
  */
@@ -115,6 +116,8 @@ export interface Config {
     modelOverrides: Volatile<Record<string, NowCodingModelOverride> | undefined>;
     /** Ids kept out of the picker without leaving the catalog. */
     hiddenModels: Volatile<string[] | undefined>;
+    /** Allowlist the picker narrows to; empty or absent shows the whole catalog. */
+    visibleModels: Volatile<string[] | undefined>;
     /** Context capacity for a model neither the entry nor the shipped catalog sizes. */
     defaultContextWindow: Volatile<number>;
     /** Output capability for a model neither the entry nor the shipped catalog sizes. */
@@ -182,6 +185,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
         description: z<string, string, "plain">;
     }>>, string>>, "volatile">;
     hiddenModels: z<NoInfer<string[]>, NoInfer<string[]>, "volatile">;
+    visibleModels: z<NoInfer<string[]>, NoInfer<string[]>, "volatile">;
     defaultContextWindow: z<number, number, "volatile-defined">;
     defaultMaxTokens: z<number, number, "volatile-defined">;
     requestTimeoutMs: z<number, number, "volatile-defined">;
@@ -239,6 +243,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
         description: z<string, string, "plain">;
     }>>, string>>, "volatile">;
     hiddenModels: z<NoInfer<string[]>, NoInfer<string[]>, "volatile">;
+    visibleModels: z<NoInfer<string[]>, NoInfer<string[]>, "volatile">;
     defaultContextWindow: z<number, number, "volatile-defined">;
     defaultMaxTokens: z<number, number, "volatile-defined">;
     requestTimeoutMs: z<number, number, "volatile-defined">;
@@ -277,6 +282,8 @@ export interface NowCodingResolvedOptions {
     fastServiceTier: NowCodingFastServiceTier;
     /** The served catalog. */
     catalog: readonly ResolvedNowCodingModel[];
+    /** Allowlist the picker narrows to; empty shows the whole catalog. */
+    visibleModels: readonly string[];
     /** Whether the sidebar quota card is shown. */
     quotaCard: boolean;
     /** Dashboard access token; empty leaves the reader on the session cookie, then the relay pair. */

@@ -10,7 +10,7 @@
 /** User-settings namespace carrying the NowCoding provider configuration. */
 export declare const NOWCODING_SETTINGS_NAMESPACE = "llm-nowcoding";
 /** Settings fields editable from the NowCoding settings page. */
-export declare const NOWCODING_SETTINGS_FIELDS: readonly ["apiKey", "baseURL", "fast", "fastServiceTier", "quotaCard", "panelToken", "panelUserId", "panelSession"];
+export declare const NOWCODING_SETTINGS_FIELDS: readonly ["apiKey", "baseURL", "fast", "fastServiceTier", "quotaCard", "panelToken", "panelUserId", "panelSession", "visibleModels"];
 /** One editable NowCoding settings field. */
 export type NowCodingSettingsField = typeof NOWCODING_SETTINGS_FIELDS[number];
 /** Default environment variable the plugin resolves the API key from. */
@@ -176,6 +176,13 @@ export interface NowCodingSettings {
      * signing in again refreshes it.
      */
     panelSession?: string;
+    /**
+     * Model allowlist: the ids the model picker keeps. Empty or absent shows the
+     * whole catalog; a `-fast` alias stays visible while its base model is kept.
+     * Narrowing only — an id kept here that the served catalog does not carry is
+     * simply not offered, and resolving one exact id still works either way.
+     */
+    visibleModels?: string[];
 }
 /** Schema-default fallbacks used by the client while the settings route is unavailable. */
 export declare const NOWCODING_SETTINGS_DEFAULTS: {
@@ -187,4 +194,5 @@ export declare const NOWCODING_SETTINGS_DEFAULTS: {
     readonly panelToken: "";
     readonly panelUserId: "";
     readonly panelSession: "";
+    readonly visibleModels: readonly [];
 };

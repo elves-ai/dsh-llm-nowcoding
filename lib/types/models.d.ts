@@ -33,8 +33,17 @@ export declare function resolveModelInfo(input: {
 }): LlmResolvedModelInfo;
 /**
  * List the entries a model picker offers, fast aliases included.
+ *
+ * `visibleModels` narrows the listing without touching the catalog: an empty
+ * or absent list shows everything, a non-empty one keeps the entries whose id
+ * — or whose base model's id, so a fast alias survives its base — the list
+ * names. {@link resolveModelInfo} is deliberately not narrowed: the route
+ * serves any id the gateway accepts, and hiding one from the picker must not
+ * strip the metadata a direct request for it still deserves.
+ *
  * @param provider - the provider route that owns these models.
  * @param catalog - the served catalog.
+ * @param visibleModels - the configured allowlist; order follows the catalog, not the list.
  * @returns one entry per selectable picker row, in catalog order.
  */
-export declare function listSelectableModels(provider: string, catalog: readonly NowCodingCatalogModel[]): readonly LlmModelInfo[];
+export declare function listSelectableModels(provider: string, catalog: readonly NowCodingCatalogModel[], visibleModels?: readonly string[]): readonly LlmModelInfo[];

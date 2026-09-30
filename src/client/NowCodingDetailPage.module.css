@@ -243,3 +243,40 @@
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+
+.modelList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  margin-top: 8px;
+  padding: 4px;
+  border: 1px solid var(--dsw-line-secondary, #2a2a35);
+  border-radius: 8px;
+  overflow-y: auto;
+}
+
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.modelRow:hover {
+  background: var(--dsw-alias-bg-layer-2, #1b1b24);
+}
+
+.modelId {
+  font-size: 12px;
+  color: var(--dsw-text-primary, #f2f2f5);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+.modelOwner {
+  font-size: 11px;
+  color: var(--dsw-text-secondary, #9a9aa8);
+}

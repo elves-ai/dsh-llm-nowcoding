@@ -55,7 +55,8 @@ export declare class NowCodingAdapter extends LlmAdapter {
      */
     providerInfo(provider: string): LlmProviderInfo;
     /**
-     * List the model picker's entries, fast aliases included.
+     * List the model picker's entries, fast aliases included, narrowed to the
+     * configured `visibleModels` allowlist when one is set.
      * @param provider - one provider route owned by this adapter.
      * @returns one entry per selectable row, in catalog order.
      */

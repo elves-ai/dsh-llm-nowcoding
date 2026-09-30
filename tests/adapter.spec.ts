@@ -30,6 +30,7 @@ function options(overrides: Partial<NowCodingResolvedOptions> = {}): NowCodingRe
     fast: false,
     fastServiceTier: 'priority',
     catalog: NOWCODING_BUILTIN_CATALOG,
+    visibleModels: [],
     quotaCard: false,
     panelToken: '',
     panelUserId: '',

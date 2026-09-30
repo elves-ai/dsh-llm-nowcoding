@@ -7,7 +7,8 @@
  * The page holds every control the plugin configures: API key (write-only,
  * blank keeps the current one, explicit clear), Base URL, the GPT fast switch
  * with its `allow_service_tier` caveat, the wire spelling, the sidebar-card
- * switch, the console sign-in, and a quota block with an explicit refresh.
+ * switch, the model allowlist (a picker over the key-scoped listing the Host
+ * fetches), the console sign-in, and a quota block with an explicit refresh.
  * The console credential is the sign-in's alone — the page carries no manual
  * token fields — and it carries no update feature either: updating is the
  * app's Plugins page's or `dsh plugin update`'s job.
@@ -27,6 +28,7 @@ import {
 } from '../settings-shared.ts'
 import {
   NowCodingApiError,
+  getModelList,
   getNowCodingSettings,
   getQuota,
   isNowCodingApiKeyConfigured,
@@ -38,6 +40,7 @@ import {
   settingsViewOf,
   type NowCodingLoginView,
   type NowCodingQuotaView,
+  type NowCodingRemoteModelView,
   type NowCodingSettingsEnvelope,
   type NowCodingSettingsOp,
 } from './api.ts'
@@ -50,6 +53,7 @@ interface Drafts {
   fast: boolean
   fastServiceTier: NowCodingFastServiceTier
   quotaCard: boolean
+  visibleModels: readonly string[]
 }
 
 const INITIAL_DRAFTS: Drafts = {
@@ -58,6 +62,7 @@ const INITIAL_DRAFTS: Drafts = {
   fast: NOWCODING_SETTINGS_DEFAULTS.fast,
   fastServiceTier: NOWCODING_SETTINGS_DEFAULTS.fastServiceTier,
   quotaCard: NOWCODING_SETTINGS_DEFAULTS.quotaCard,
+  visibleModels: NOWCODING_SETTINGS_DEFAULTS.visibleModels,
 }
 
 /** The two wire spellings of the fast tier, in presentation order. */
@@ -75,6 +80,7 @@ function draftsOf(envelope: NowCodingSettingsEnvelope): Drafts {
     fast: typeof view.fast === 'boolean' ? view.fast : NOWCODING_SETTINGS_DEFAULTS.fast,
     fastServiceTier: view.fastServiceTier ?? NOWCODING_SETTINGS_DEFAULTS.fastServiceTier,
     quotaCard: typeof view.quotaCard === 'boolean' ? view.quotaCard : NOWCODING_SETTINGS_DEFAULTS.quotaCard,
+    visibleModels: view.visibleModels ?? NOWCODING_SETTINGS_DEFAULTS.visibleModels,
   }
 }
 
@@ -123,6 +129,21 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Chinese copy for the model-list failures a user can act on. */
+function modelListMessageOf(error: unknown): string {
+  const code = error instanceof NowCodingApiError ? error.code : ''
+  switch (code) {
+    case 'unauthorized':
+      return '尚未配置 API Key：请先在上方保存一个 Key，再拉取模型列表。'
+    case 'unreachable':
+    case 'timeout':
+    case 'gateway-error':
+      return '无法连接 NowCoding 网关，请检查网络后重试。'
+    default:
+      return messageOf(error)
+  }
+}
+
 /**
  * Render the NowCoding detail page.
  * @returns the page element tree.
@@ -145,6 +166,10 @@ export function NowCodingDetailPage(): ReactElement | null {
   const [loggingIn, setLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
   const [loginNotice, setLoginNotice] = useState<string | null>(null)
+  const [modelList, setModelList] = useState<readonly NowCodingRemoteModelView[] | null>(null)
+  const [modelListLoading, setModelListLoading] = useState(false)
+  const [modelListError, setModelListError] = useState<string | null>(null)
+  const [modelQuery, setModelQuery] = useState('')
 
   const refreshQuota = useCallback(async (): Promise<void> => {
     setQuotaLoading(true)
@@ -264,7 +289,44 @@ export function NowCodingDetailPage(): ReactElement | null {
     ops.push({ op: 'set', path: ['fast'], value: drafts.fast })
     ops.push({ op: 'set', path: ['fastServiceTier'], value: drafts.fastServiceTier })
     ops.push({ op: 'set', path: ['quotaCard'], value: drafts.quotaCard })
+    // An emptied allowlist unsets the field rather than storing an empty
+    // array: both mean "show everything", and unset is the honest spelling.
+    if (drafts.visibleModels.length === 0) ops.push({ op: 'unset', path: ['visibleModels'] })
+    else ops.push({ op: 'set', path: ['visibleModels'], value: [...drafts.visibleModels] })
     void applyOps(ops)
+  }
+
+  /** Read the key-scoped listing from the Host route. */
+  const fetchModels = async (): Promise<void> => {
+    setModelListLoading(true)
+    setModelListError(null)
+    try {
+      setModelList((await getModelList()).models)
+    } catch (caught) {
+      setModelListError(modelListMessageOf(caught))
+    } finally {
+      setModelListLoading(false)
+    }
+  }
+
+  /** Check or uncheck one model in the allowlist draft. */
+  const toggleModel = (id: string): void => {
+    const kept = drafts.visibleModels.includes(id)
+      ? drafts.visibleModels.filter(candidate => candidate !== id)
+      : [...drafts.visibleModels, id]
+    setDrafts({ ...drafts, visibleModels: kept })
+  }
+
+  /** Drop every drafted id the current listing no longer carries. */
+  const cleanStaleModels = (): void => {
+    if (modelList === null) return
+    const live = new Set(modelList.map(model => model.id))
+    setDrafts({ ...drafts, visibleModels: drafts.visibleModels.filter(id => live.has(id)) })
+  }
+
+  /** Clear the allowlist draft: the picker shows the whole catalog again. */
+  const clearVisibleModels = (): void => {
+    setDrafts({ ...drafts, visibleModels: [] })
   }
 
   if (loading) return <div className={css.section}><p className={css.hint}>正在加载 NowCoding 配置…</p></div>
@@ -281,6 +343,15 @@ export function NowCodingDetailPage(): ReactElement | null {
   const panelSessionConfigured = isNowCodingPanelSessionConfigured(envelope)
   const disabled = envelope.writable === false || saving
   const snapshot = quota === null ? null : quota.snapshot
+  // Drafted ids the current listing no longer carries: the key can no longer
+  // serve them, and the user has a one-click cleanup once a listing is loaded.
+  const staleIds = modelList === null
+    ? []
+    : drafts.visibleModels.filter(id => !modelList.some(model => model.id === id))
+  const query = modelQuery.trim().toLowerCase()
+  const filteredModels = modelList === null
+    ? []
+    : modelList.filter(model => query === '' || model.id.toLowerCase().includes(query))
 
   return (
     <div className={css.section}>
@@ -402,6 +473,77 @@ export function NowCodingDetailPage(): ReactElement | null {
             />
           </div>
         </div>
+      </div>
+
+      <div className={css.card}>
+        <p className={css.cardIntro}>模型白名单：勾选要保留的模型，模型选择器就只列出这些；一个都不勾选时显示全部目录模型。列表拉取自站方按当前 Key 返回的可用模型，保存后生效。</p>
+
+        <div className={css.row}>
+          <div className={css.rowText}>
+            <span className={css.title}>保留的模型</span>
+            <span className={css.desc}>
+              {drafts.visibleModels.length === 0
+                ? '未勾选：模型选择器显示全部目录模型。'
+                : `已保留 ${drafts.visibleModels.length} 个；保存后模型选择器只列出这些，下次打开选择器生效。`}
+            </span>
+          </div>
+          <div className={css.control}>
+            {staleIds.length > 0 && (
+              <button type="button" className={css.button} disabled={disabled} onClick={cleanStaleModels}>
+                清理失效（{staleIds.length}）
+              </button>
+            )}
+            {drafts.visibleModels.length > 0 && (
+              <button type="button" className={css.button} disabled={disabled} onClick={clearVisibleModels}>
+                显示全部
+              </button>
+            )}
+            <button
+              type="button"
+              className={css.button}
+              disabled={modelListLoading}
+              onClick={() => { void fetchModels() }}
+            >
+              {modelListLoading ? '拉取中…' : modelList === null ? '拉取模型列表' : '重新拉取'}
+            </button>
+          </div>
+        </div>
+
+        {modelListError !== null && <p className={css.error} role="alert">{modelListError}</p>}
+
+        {modelList !== null && (
+          <div className={css.row}>
+            <div className={css.quotaBody}>
+              <input
+                className={css.input}
+                type="search"
+                placeholder="搜索模型 id…"
+                aria-label="搜索模型"
+                value={modelQuery}
+                onChange={event => { setModelQuery(event.currentTarget.value) }}
+              />
+              <div className={css.modelList}>
+                {filteredModels.map(model => (
+                  <label className={css.modelRow} key={model.id}>
+                    <input
+                      type="checkbox"
+                      className={css.checkbox}
+                      checked={drafts.visibleModels.includes(model.id)}
+                      onChange={() => { toggleModel(model.id) }}
+                    />
+                    <span className={css.modelId}>{model.id}</span>
+                    {model.ownedBy !== undefined && <span className={css.modelOwner}>{model.ownedBy}</span>}
+                    {!model.known && <span className={css.badgeOff}>目录外</span>}
+                  </label>
+                ))}
+                {filteredModels.length === 0 && <p className={css.hint}>没有匹配的模型。</p>}
+              </div>
+              <p className={css.hint}>
+                站方为当前 Key 返回 {modelList.length} 个模型；标注「目录外」的模型可以勾选保存，但插件目录收录它之前不会出现在模型选择器里。
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={css.card}>

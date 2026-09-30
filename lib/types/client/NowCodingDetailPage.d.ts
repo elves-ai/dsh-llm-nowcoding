@@ -7,7 +7,8 @@
  * The page holds every control the plugin configures: API key (write-only,
  * blank keeps the current one, explicit clear), Base URL, the GPT fast switch
  * with its `allow_service_tier` caveat, the wire spelling, the sidebar-card
- * switch, the console sign-in, and a quota block with an explicit refresh.
+ * switch, the model allowlist (a picker over the key-scoped listing the Host
+ * fetches), the console sign-in, and a quota block with an explicit refresh.
  * The console credential is the sign-in's alone — the page carries no manual
  * token fields — and it carries no update feature either: updating is the
  * app's Plugins page's or `dsh plugin update`'s job.

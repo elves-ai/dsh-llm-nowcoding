@@ -17,6 +17,7 @@ The one rule that matters most: **the active dsh profile owns every `@deepseek-a
 | `src/catalog.ts` | The shipped model catalog, the `-fast` alias grammar, and selector expansion. Data, not policy. |
 | `src/fast.ts` | The one decision about `service_tier`, and what happens when the model has no fast tier. |
 | `src/models.ts` | Exact-route metadata behind `resolveModel` and `listModels`. No I/O. |
+| `src/live-models.ts` | The live model-list reader (`GET {base}/v1/models`, key-scoped) and its normalization, with an injected transport. |
 | `src/quota.ts` | The balance reader and its normalization, with an injected transport. |
 | `src/panel-login.ts` | Console sign-in: the password exchange, the session cookie it yields as the credential, and the read-only token read-back. |
 | `src/settings-routes.ts` | The fenced `/nowcoding/api` route, its dispatch, and the browser-trust policy. |
@@ -88,6 +89,13 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 2. A `-fast` model alias is a selector id, never a wire id. `wireModelId()` strips it before the request; `serialize.ts` must send the stripped id.
 3. **The gateway strips `service_tier` unless its channel enables `allow_service_tier`.** Fast mode therefore defaults off and the field is dropped, not sent, for a model the catalog does not mark fast-capable. Do not "fix" that by sending it anyway: a gateway that does not know the model's tier rejects the whole request.
 
+### The model allowlist
+
+`visibleModels` narrows what the picker offers, and two properties are load-bearing:
+
+- **It narrows the listing, never the resolution.** `listSelectableModels` filters by allow-set (empty or absent shows everything; a fast alias stays listed while its base model is kept), while `resolveModel` answers any id the gateway accepts with full metadata. Hiding a model from the picker must not strip what a direct request for it deserves.
+- **The picker's rows come from the key-scoped listing, not the public pricing page.** The route's `models.list` reads `GET {base}/v1/models` with the model key through `live-models.ts`, so every id it returns is one the key can serve; the answer annotates each id with whether the served catalog knows it. A checked-but-unknown id is stored faithfully and offered for cleanup — it must not be silently dropped, and it must not be presented as picker-visible either.
+
 ### Quota semantics
 
 `quota.ts` reads two balances on two authentication chains, and every property below is load-bearing:
@@ -114,7 +122,7 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 
 `/nowcoding/api` is the only way the browser half reaches the Host. It is gated by the same browser-trust policy as the `/api` gateway: a loopback or configured trusted Host header, no `sec-fetch-site: cross-site`, and an `Origin` that matches when present. `isTrustedApiRequest` is copied from the sibling `dsh-web-search-firecrawl` plugin deliberately; keep the two in step and keep its tests if you add any.
 
-The success envelope is `{ ok: true, value }` and the failure envelope is `{ ok: false, error: { code, message } }`, owned jointly with `src/client/api.ts`. Changing one without the other breaks the card silently.
+The success envelope is `{ ok: true, value }` and the failure envelope is `{ ok: false, error: { code, message } }`, owned jointly with `src/client/api.ts`. Changing one without the other breaks the card silently. The methods are `settings.get`, `settings.mutate`, `quota.get`, `models.list` (the key-scoped listing for the picker's allowlist), `panel.login`, and `panel.two-factor`; `models.list` rides the same error vocabulary as `quota.get`, so `writeError` maps both identically.
 
 ### The browser half
 

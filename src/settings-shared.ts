@@ -21,6 +21,7 @@ export const NOWCODING_SETTINGS_FIELDS = [
   'panelToken',
   'panelUserId',
   'panelSession',
+  'visibleModels',
 ] as const
 
 /** One editable NowCoding settings field. */
@@ -209,6 +210,13 @@ export interface NowCodingSettings {
    * signing in again refreshes it.
    */
   panelSession?: string
+  /**
+   * Model allowlist: the ids the model picker keeps. Empty or absent shows the
+   * whole catalog; a `-fast` alias stays visible while its base model is kept.
+   * Narrowing only — an id kept here that the served catalog does not carry is
+   * simply not offered, and resolving one exact id still works either way.
+   */
+  visibleModels?: string[]
 }
 
 /** Schema-default fallbacks used by the client while the settings route is unavailable. */
@@ -221,4 +229,5 @@ export const NOWCODING_SETTINGS_DEFAULTS = {
   panelToken: '',
   panelUserId: '',
   panelSession: '',
+  visibleModels: [],
 } as const
