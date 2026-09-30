@@ -18,6 +18,7 @@ The one rule that matters most: **the active dsh profile owns every `@deepseek-a
 | `src/fast.ts` | The one decision about `service_tier`, and what happens when the model has no fast tier. |
 | `src/models.ts` | Exact-route metadata behind `resolveModel` and `listModels`. No I/O. |
 | `src/quota.ts` | The balance reader and its normalization, with an injected transport. |
+| `src/panel-login.ts` | Console sign-in: the password exchange, the session cookie it holds, and the token read-back. |
 | `src/settings-routes.ts` | The fenced `/nowcoding/api` route, its dispatch, and the browser-trust policy. |
 | `src/settings-shared.ts` | Vocabulary both halves share. **Never import Host-only or Node modules here.** |
 | `src/wire.ts` | Gateway wire types and narrowing guards. |
@@ -99,6 +100,16 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 
 `NOWCODING_UNLIMITED_QUOTA_SENTINEL` marks a key with no limit. A reader change must keep the `unreachable` / `unauthorized` / `gateway-error` / `unprocessable` / `timeout` classification: the card branches on it and a stale number must never be presented as current.
 
+### Console sign-in
+
+`panel-login.ts` turns an account name and password into the dashboard credential the reader needs. Three properties are security-relevant and must survive a rewrite:
+
+- **The password is a call argument, never state.** It may not be written to the settings namespace, the session log, or a route answer, and the page clears its field once the login settles. A rewrite that "remembers" it in order to retry the second factor is a defect: the Host holds the half-finished session instead.
+- **Only this module reads a token.** `panelToken` reaches the page as a set/unset secret slot, and the sign-in answer carries the account name and id and nothing an XSS could replay.
+- **The read order is the safety property.** `/api/user/self/access-token` and `/api/user/self` report a token; `/api/user/token` issues one and **rotates an existing value**. Reaching the third route while the account still holds a token silently breaks every other tool configured with it.
+
+`turnstile-required` is its own failure code because the user's fix differs from a wrong password: the deployment solved a challenge this client cannot. **The password is not the only credential this touches** — signing in configures the console chain only, never the model key.
+
 ### The fenced route
 
 `/nowcoding/api` is the only way the browser half reaches the Host. It is gated by the same browser-trust policy as the `/api` gateway: a loopback or configured trusted Host header, no `sec-fetch-site: cross-site`, and an `Origin` that matches when present. `isTrustedApiRequest` is copied from the sibling `dsh-web-search-firecrawl` plugin deliberately; keep the two in step and keep its tests if you add any.
@@ -131,6 +142,9 @@ These were confirmed against the live gateway on **2026-09-30**. The gateway is 
 | Display currency | CNY despite `*_usd` field names | `GET /api/status` → `quota_display_type` |
 | Health and latency | `GET /api/service-status/overview` (public) | per-group probes with `template` naming the protocol actually used |
 | Fast passthrough | management-side `allow_service_tier`, value not public | compare the tier echoed in responses with and without the field |
+| Console sign-in | `POST {origin}/api/user/login` `{username,password}` | a wrong pair answers HTTP 200 `{success:false,message}`; `data.require_2fa` routes to `/api/user/login/2fa` |
+| Console token read | `GET {origin}/api/user/self/access-token`, then `{origin}/api/user/self` | both answer `200 {success:false}` without the session cookie; `/api/user/token` issues a token and rotates an existing one |
+| Turnstile and OAuth | all off | `GET /api/status` → `turnstile_check`, `github_oauth`, `wechat_login`, `linuxdo_oauth`, `telegram_oauth`, `oidc_enabled` |
 
 **This plugin targets the `0.1.7-rc.2` and `0.2.0-rc.2` lines, which are identical in every seam it touches.** `packages/llm/llm/src`, `packages/settings/settings/src`, and the `sidebar.footer.action` contract have no diff between the two release tags, so the peer range covers both. Re-check that diff before widening the range further: the composition patch (`packages/bundle/web-app/cordis.patch.yml`) does change between lines, and a plugin row is composed through exactly that file.
 
@@ -147,7 +161,8 @@ These were confirmed against the live gateway on **2026-09-30**. The gateway is 
 | Pure logic in `catalog.ts`, `fast.ts`, `config.ts` | `pnpm test` — extend the owning spec |
 | `quota.ts` | `pnpm test` — drive `normalizeQuota` with literal documents and `createQuotaReader` with an injected `fetch` |
 | `serialize.ts`, `translate.ts`, `sse.ts`, `adapter.ts` | `pnpm test` against a recorded SSE transcript; `pnpm run typecheck` |
-| `settings-routes.ts` | `pnpm run typecheck`; assert dispatch behaviour through a unit spec if you add one |
+| `panel-login.ts` | `pnpm test` — drive `createPanelLogin` with a scripted `fetch`; assert the password reaches no write and no answer |
+| `settings-routes.ts` | `pnpm test` through the exported `dispatchNowCodingMethod`, which needs no cordis context, plus `pnpm run typecheck` |
 | `src/client/**` or `tsdown.config.ts` | `pnpm run build` — the purity gate and the client bundle are only exercised there |
 | Anything under `src/` | `pnpm run build`, then commit the refreshed `lib/` with the source change |
 | Anything user-visible | Update `README.md` and `README.zh.md` in the same change |
@@ -165,8 +180,7 @@ Deferred work, in the order it is worth doing:
 1. **Locale-owned copy.** The client half writes its strings inline in Chinese. The Harness expects product copy in typed locale dictionaries, which needs `@deepseek-ai/dsh-client-locale` and a `locale` registration.
 2. **The Responses protocol.** Codex groups are reported by the gateway's own health checks as running `/v1/responses`, while the pricing metadata lists only `openai`. A second protocol on the adapter fixes a Codex-only group.
 3. **The Anthropic Messages protocol.** The gateway serves `/v1/messages` at the origin-level base.
-4. **Credential-seam integration.** `apiKeyEnv` resolves through `launchEnvironmentOf`. Resolving through `ctx.credentials` instead would let a key live in the credential store rather than the environment.
-5. **Subscription balances.** `/api/subscription/self` reports monthly-plan remaining usage, but needs a dashboard access token rather than the API key, and answers HTTP 200 with `success: false` on failure.
+4. **Credential-seam integration.** `apiKeyEnv` resolves through `launchEnvironmentOf`. Resolving through `ctx.credentials` instead would let the model key — and the dashboard token sign-in produces — live in the credential store rather than the environment and the settings namespace.
 
 ## Gotchas
 

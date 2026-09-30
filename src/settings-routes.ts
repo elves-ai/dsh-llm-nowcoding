@@ -14,13 +14,20 @@
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
-import type SettingsForms from '@deepseek-ai/dsh-settings'
 import {
   SettingsConflictError,
   type SettingsDescriptor,
   type SettingsPathOp,
 } from '@deepseek-ai/dsh-settings'
 import type { NowCodingResolvedOptions } from './config.ts'
+import {
+  createPanelLogin,
+  NowCodingLoginError,
+  type NowCodingLoginFailure,
+  type NowCodingLoginResult,
+  type NowCodingPanelCredential,
+  type NowCodingPanelLogin,
+} from './panel-login.ts'
 import { createQuotaReader, NowCodingQuotaError, type NowCodingQuotaSnapshot } from './quota.ts'
 import {
   NOWCODING_DISPLAY_CURRENCY_SYMBOL,
@@ -43,6 +50,36 @@ export interface NowCodingWebServer {
 export interface NowCodingWebRuntime {
   trustedHosts: readonly string[]
 }
+
+/** The settings-seam members this route uses; the service satisfies it structurally. */
+export interface NowCodingSettingsFace {
+  readonly writable: boolean
+  describe(options: { redactSecrets: true }): readonly SettingsDescriptor[]
+  mutate(ns: string, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<unknown>
+}
+
+/** Everything one route method runs against, so dispatch is testable without a cordis context. */
+export interface NowCodingRouteDeps {
+  /** The settings seam, or undefined in a deployment that mounts none. */
+  settings: NowCodingSettingsFace | undefined
+  /** Resolved plugin options for this request. */
+  options: NowCodingResolvedOptions
+  /** Console sign-in, held across requests so a two-factor challenge survives the gap. */
+  login: NowCodingPanelLogin
+}
+
+/** Answer of the two sign-in methods; the credential itself never rides it. */
+export type NowCodingLoginAnswer =
+  | { status: 'two-factor-required' }
+  | {
+    status: 'ok'
+    /** Account id written to `panelUserId`. */
+    userId: string
+    /** Account name, for the page's confirmation copy. */
+    username: string
+    /** How the token was obtained, so the page can warn about a rotation. */
+    tokenSource: NowCodingPanelCredential['tokenSource']
+  }
 
 /** One redacted secret slot as returned by `settings.describe({ redactSecrets: true })`. */
 export interface NowCodingSettingsSecretView {
@@ -145,15 +182,50 @@ function writeError(res: ServerResponse, error: unknown): void {
     })
     return
   }
+  if (error instanceof NowCodingLoginError) {
+    writeJson(res, loginStatus(error.code), {
+      ok: false,
+      error: { code: error.code, message: error.message },
+    })
+    return
+  }
   writeJson(res, 500, {
     ok: false,
     error: { code: 'internal', message: error instanceof Error ? error.message : String(error) },
   })
 }
 
+/** HTTP status for one sign-in failure: a refused credential is the caller's, the rest are ours. */
+function loginStatus(code: NowCodingLoginFailure): number {
+  switch (code) {
+    case 'bad-credentials':
+    case 'two-factor-invalid':
+      return 401
+    case 'two-factor-unavailable':
+      return 409
+    default:
+      return 502
+  }
+}
+
 /** True for a plain object patch/payload. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Require a plain-object payload. */
+function requireObject(payload: unknown, what: string): Record<string, unknown> {
+  if (!isPlainObject(payload)) throw new NowCodingRouteError('bad-request', `${what} payload must be an object`)
+  return payload
+}
+
+/** Require one non-empty string field of a payload. */
+function requireStringField(source: Record<string, unknown>, key: string): string {
+  const value = source[key]
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new NowCodingRouteError('bad-request', `"${key}" must be a non-empty string`)
+  }
+  return value
 }
 
 /** Validate one top-level settings path op against the NowCoding schema. */
@@ -190,7 +262,7 @@ function validateOp(op: unknown): asserts op is SettingsPathOp {
 }
 
 /** The current redacted view of the NowCoding settings namespace. */
-function viewOf(settings: SettingsForms, ns: string): NowCodingSettingsView | undefined {
+function viewOf(settings: NowCodingSettingsFace, ns: string): NowCodingSettingsView | undefined {
   const descriptor: SettingsDescriptor | undefined = settings
     .describe({ redactSecrets: true })
     .find(candidate => candidate.ns === ns)
@@ -206,23 +278,21 @@ function viewOf(settings: SettingsForms, ns: string): NowCodingSettingsView | un
   }
 }
 
-/** Require the settings service and this instance's section, then return the view. */
-function requireView(ctx: Context, ns: string): NowCodingSettingsView {
-  const settings = settingsOf(ctx)
-  const view = viewOf(settings, ns)
+/** Require this instance's section, then return its redacted view. */
+function requireView(deps: NowCodingRouteDeps): NowCodingSettingsView {
+  const view = viewOf(settingsOf(deps.settings), deps.options.settingsNs)
   if (view === undefined) {
     throw new NowCodingRouteError(
       'settings-rejected',
-      `this deployment has no configuration section named "${ns}"`,
+      `this deployment has no configuration section named "${deps.options.settingsNs}"`,
       503,
     )
   }
   return view
 }
 
-/** The settings service, or a route error naming its absence. */
-function settingsOf(ctx: Context): SettingsForms {
-  const settings = ctx.get('settings') as SettingsForms | undefined
+/** The settings seam, or a route error naming its absence. */
+function settingsOf(settings: NowCodingSettingsFace | undefined): NowCodingSettingsFace {
   if (settings === undefined) {
     throw new NowCodingRouteError('settings-rejected', 'the settings service is not mounted in this deployment', 503)
   }
@@ -242,9 +312,11 @@ async function readQuota(options: NowCodingResolvedOptions): Promise<NowCodingQu
     currency: NOWCODING_DISPLAY_CURRENCY_SYMBOL,
     refreshSeconds: options.quotaRefreshSeconds,
   }
-  // A keyless route is a normal first-run state, not a failure: the card says
-  // so instead of surfacing a credential error the user cannot act on yet.
-  if (options.apiKey.length === 0) return { ...shared, snapshot: null }
+  // Either credential can report a balance: the model key reaches the wallet,
+  // the dashboard token reaches a monthly plan. Lacking both is a normal
+  // first-run state rather than a failure, so the card says so instead of
+  // surfacing a credential error the user cannot act on yet.
+  if (options.apiKey.length === 0 && options.panelToken.length === 0) return { ...shared, snapshot: null }
   const reader = createQuotaReader({
     baseURL: options.baseURL,
     apiKey: options.apiKey,
@@ -254,41 +326,94 @@ async function readQuota(options: NowCodingResolvedOptions): Promise<NowCodingQu
   return { ...shared, snapshot: await reader.read() }
 }
 
-/** Dispatch one API method. */
-async function dispatch(
-  ctx: Context,
-  options: () => NowCodingResolvedOptions,
+/** Apply path ops through the settings seam and return the fresh redacted document. */
+async function mutateSettings(
+  deps: NowCodingRouteDeps,
+  ops: readonly SettingsPathOp[],
+  expectedRevision?: number,
+): Promise<NowCodingSettingsView> {
+  const settings = settingsOf(deps.settings)
+  const ns = deps.options.settingsNs
+  try {
+    await settings.mutate(ns, ops, expectedRevision)
+  } catch (error) {
+    if (isSettingsConflict(error)) {
+      throw new NowCodingRouteError('settings-conflict', error instanceof Error ? error.message : String(error), 409)
+    }
+    throw new NowCodingRouteError('settings-rejected', error instanceof Error ? error.message : String(error))
+  }
+  const view = viewOf(settings, ns)
+  if (view === undefined) {
+    throw new NowCodingRouteError('settings-rejected', `the configuration section "${ns}" disappeared after the write`, 503)
+  }
+  return view
+}
+
+/**
+ * Store a finished sign-in's credential.
+ *
+ * The token is written from the Host and never rides the answer, so the page
+ * learns which account signed in and nothing an XSS could replay.
+ *
+ * @param deps - settings seam and resolved options.
+ * @param result - the sign-in step's answer.
+ * @returns what the page may show about the sign-in.
+ */
+async function storeCredential(deps: NowCodingRouteDeps, result: NowCodingLoginResult): Promise<NowCodingLoginAnswer> {
+  if (result.status === 'two-factor-required') return { status: 'two-factor-required' }
+  const credential = result.credential
+  await mutateSettings(deps, [
+    { op: 'set', path: ['panelToken'], value: credential.accessToken },
+    { op: 'set', path: ['panelUserId'], value: credential.userId },
+  ])
+  return {
+    status: 'ok',
+    userId: credential.userId,
+    username: credential.username,
+    tokenSource: credential.tokenSource,
+  }
+}
+
+/**
+ * Dispatch one API method against the seams this route uses.
+ *
+ * Exported so the browser-facing contract is exercised without a cordis
+ * context; `registerNowCodingSettingsRoutes` is the only production caller.
+ *
+ * @param deps - settings seam, resolved options, and the console sign-in client.
+ * @param method - the method name the request body carried.
+ * @param payload - the payload the request body carried.
+ * @returns the method's value.
+ */
+export async function dispatchNowCodingMethod(
+  deps: NowCodingRouteDeps,
   method: unknown,
   payload: unknown,
 ): Promise<unknown> {
   switch (method) {
     case 'settings.get':
-      return requireView(ctx, options().settingsNs)
+      return requireView(deps)
     case 'quota.get':
-      return readQuota(options())
+      return readQuota(deps.options)
     case 'settings.mutate': {
-      if (!isPlainObject(payload)) throw new NowCodingRouteError('bad-request', 'payload must be an object')
-      const ops = payload.ops
+      const body = requireObject(payload, 'settings.mutate')
+      const ops = body.ops
       if (!Array.isArray(ops) || ops.length === 0) {
         throw new NowCodingRouteError('bad-request', 'ops must be a non-empty array')
       }
       for (const op of ops) validateOp(op)
-      const expectedRevision = typeof payload.expectedRevision === 'number' ? payload.expectedRevision : undefined
-      const ns = options().settingsNs
-      const settings = settingsOf(ctx)
-      try {
-        await settings.mutate(ns, ops as SettingsPathOp[], expectedRevision)
-      } catch (error) {
-        if (isSettingsConflict(error)) {
-          throw new NowCodingRouteError('settings-conflict', error instanceof Error ? error.message : String(error), 409)
-        }
-        throw new NowCodingRouteError('settings-rejected', error instanceof Error ? error.message : String(error))
-      }
-      const view = viewOf(settings, ns)
-      if (view === undefined) {
-        throw new NowCodingRouteError('settings-rejected', `the configuration section "${ns}" disappeared after the write`, 503)
-      }
-      return view
+      const expectedRevision = typeof body.expectedRevision === 'number' ? body.expectedRevision : undefined
+      return mutateSettings(deps, ops as SettingsPathOp[], expectedRevision)
+    }
+    case 'panel.login': {
+      const body = requireObject(payload, 'panel.login')
+      const username = requireStringField(body, 'username')
+      const password = requireStringField(body, 'password')
+      return storeCredential(deps, await deps.login.login(username, password))
+    }
+    case 'panel.two-factor': {
+      const body = requireObject(payload, 'panel.two-factor')
+      return storeCredential(deps, await deps.login.verifyTwoFactor(requireStringField(body, 'code')))
     }
     default:
       throw new NowCodingRouteError('not-found', `unknown NowCoding method "${String(method)}"`, 404)
@@ -308,6 +433,9 @@ export function registerNowCodingSettingsRoutes(
   ctx: Context,
   options: () => NowCodingResolvedOptions,
 ): void {
+  // One sign-in client per plugin apply: a two-factor challenge is a session
+  // held between two requests, so it cannot be rebuilt per call.
+  const login = createPanelLogin({ baseURL: () => options().baseURL })
   ctx.inject(['webServer', 'webRuntime'], (routeCtx) => {
     const webServer = routeCtx.get('webServer') as NowCodingWebServer
     const webRuntime = routeCtx.get('webRuntime') as NowCodingWebRuntime
@@ -326,7 +454,12 @@ export function registerNowCodingSettingsRoutes(
         try {
           const payload = await readJsonBody(req)
           const record = isPlainObject(payload) ? payload : {}
-          writeOk(res, await dispatch(ctx, options, record.method, record.payload))
+          const deps: NowCodingRouteDeps = {
+            settings: ctx.get('settings') as NowCodingSettingsFace | undefined,
+            options: options(),
+            login,
+          }
+          writeOk(res, await dispatchNowCodingMethod(deps, record.method, record.payload))
         } catch (error) {
           writeError(res, error)
         }

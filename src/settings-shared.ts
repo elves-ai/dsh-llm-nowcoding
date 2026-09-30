@@ -76,6 +76,31 @@ export const NOWCODING_STATUS_PATH = '/api/status'
 export const NOWCODING_SUBSCRIPTION_PATH = '/api/subscription/self'
 
 /**
+ * Console sign-in, appended to the gateway origin.
+ *
+ * The console answers with the session cookie the access-token routes need.
+ * The password is a parameter of this one request; nothing persists it.
+ */
+export const NOWCODING_LOGIN_PATH = '/api/user/login'
+
+/** Second sign-in step, taken only when the account has 2FA enabled. */
+export const NOWCODING_TWO_FACTOR_LOGIN_PATH = '/api/user/login/2fa'
+
+/** Console account document; its `access_token` member is a token fallback. */
+export const NOWCODING_SELF_PATH = '/api/user/self'
+
+/** Reads the account's dashboard token without rotating it. */
+export const NOWCODING_SELF_ACCESS_TOKEN_PATH = '/api/user/self/access-token'
+
+/**
+ * Issues a dashboard token, appended to the gateway origin.
+ *
+ * The console labels this action a reset and it rotates an existing token,
+ * which is why sign-in reaches it only after both read routes came back empty.
+ */
+export const NOWCODING_ACCESS_TOKEN_PATH = '/api/user/token'
+
+/**
  * Divisor assumed when the status document cannot be read.
  *
  * This deployment reports `quota_per_unit: 500000`. The fallback keeps a

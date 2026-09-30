@@ -13,7 +13,9 @@
  */
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
+import { type SettingsDescriptor, type SettingsPathOp } from '@deepseek-ai/dsh-settings';
 import type { NowCodingResolvedOptions } from './config.ts';
+import { type NowCodingPanelCredential, type NowCodingPanelLogin } from './panel-login.ts';
 import { type NowCodingQuotaSnapshot } from './quota.ts';
 /** Structural webServer face (mirror of `@deepseek-ai/dsh-host-webserver`). */
 export interface NowCodingWebServer {
@@ -27,6 +29,35 @@ export interface NowCodingWebServer {
 export interface NowCodingWebRuntime {
     trustedHosts: readonly string[];
 }
+/** The settings-seam members this route uses; the service satisfies it structurally. */
+export interface NowCodingSettingsFace {
+    readonly writable: boolean;
+    describe(options: {
+        redactSecrets: true;
+    }): readonly SettingsDescriptor[];
+    mutate(ns: string, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<unknown>;
+}
+/** Everything one route method runs against, so dispatch is testable without a cordis context. */
+export interface NowCodingRouteDeps {
+    /** The settings seam, or undefined in a deployment that mounts none. */
+    settings: NowCodingSettingsFace | undefined;
+    /** Resolved plugin options for this request. */
+    options: NowCodingResolvedOptions;
+    /** Console sign-in, held across requests so a two-factor challenge survives the gap. */
+    login: NowCodingPanelLogin;
+}
+/** Answer of the two sign-in methods; the credential itself never rides it. */
+export type NowCodingLoginAnswer = {
+    status: 'two-factor-required';
+} | {
+    status: 'ok';
+    /** Account id written to `panelUserId`. */
+    userId: string;
+    /** Account name, for the page's confirmation copy. */
+    username: string;
+    /** How the token was obtained, so the page can warn about a rotation. */
+    tokenSource: NowCodingPanelCredential['tokenSource'];
+};
 /** One redacted secret slot as returned by `settings.describe({ redactSecrets: true })`. */
 export interface NowCodingSettingsSecretView {
     path: string[];
@@ -68,6 +99,18 @@ export declare class NowCodingRouteError extends Error {
     readonly status: number;
     constructor(code: string, message: string, status?: number);
 }
+/**
+ * Dispatch one API method against the seams this route uses.
+ *
+ * Exported so the browser-facing contract is exercised without a cordis
+ * context; `registerNowCodingSettingsRoutes` is the only production caller.
+ *
+ * @param deps - settings seam, resolved options, and the console sign-in client.
+ * @param method - the method name the request body carried.
+ * @param payload - the payload the request body carried.
+ * @returns the method's value.
+ */
+export declare function dispatchNowCodingMethod(deps: NowCodingRouteDeps, method: unknown, payload: unknown): Promise<unknown>;
 /**
  * Register `/nowcoding/api` while `webServer` and `webRuntime` are mounted.
  *

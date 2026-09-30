@@ -105,6 +105,35 @@ export declare class NowCodingApiError extends Error {
 export declare function getQuota(signal?: AbortSignal): Promise<NowCodingQuotaView>;
 /** Read the redacted NowCoding settings document. */
 export declare function getNowCodingSettings(): Promise<NowCodingSettingsEnvelope>;
+/** Answer of `panel.login` and `panel.two-factor`; the credential itself stays on the Host. */
+export type NowCodingLoginView = {
+    status: 'two-factor-required';
+} | {
+    status: 'ok';
+    /** Account id the Host wrote to `panelUserId`. */
+    userId: string;
+    /** Account name, for the page's confirmation copy. */
+    username: string;
+    /** How the token was obtained; `generated` means any older token was rotated. */
+    tokenSource: 'login' | 'read' | 'generated';
+};
+/**
+ * Sign in with the account's NowCoding console credentials.
+ *
+ * The password rides this one request and is stored by neither half: the Host
+ * exchanges it for the dashboard token it writes into the settings slot, and
+ * the token never rides an answer back.
+ * @param username - console username.
+ * @param password - console password.
+ * @returns the sign-in answer, or a request for the second factor.
+ */
+export declare function panelLogin(username: string, password: string): Promise<NowCodingLoginView>;
+/**
+ * Answer the two-factor challenge the last {@link panelLogin} opened.
+ * @param code - authenticator code, or one of the account's backup codes.
+ * @returns the sign-in answer.
+ */
+export declare function panelTwoFactorLogin(code: string): Promise<NowCodingLoginView>;
 /**
  * Apply path ops and return the fresh redacted document.
  * @param ops - path-addressed edits applied in one commit.

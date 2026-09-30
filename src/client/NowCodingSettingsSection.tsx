@@ -28,7 +28,10 @@ import {
   isNowCodingApiKeyConfigured,
   isNowCodingPanelTokenConfigured,
   mutateNowCodingSettings,
+  panelLogin,
+  panelTwoFactorLogin,
   settingsViewOf,
+  type NowCodingLoginView,
   type NowCodingQuotaView,
   type NowCodingSettingsEnvelope,
   type NowCodingSettingsOp,
@@ -91,6 +94,29 @@ function formatTimestamp(at: number): string {
   return `${moment.getFullYear()}-${pad(moment.getMonth() + 1)}-${pad(moment.getDate())} ${pad(moment.getHours())}:${pad(moment.getMinutes())}:${pad(moment.getSeconds())}`
 }
 
+/** Chinese copy for the sign-in failures a user can act on. */
+function loginMessageOf(error: unknown): string {
+  const code = error instanceof NowCodingApiError ? error.code : ''
+  switch (code) {
+    case 'bad-credentials':
+      return '账号或密码不正确；站方也可能已封禁该账号。'
+    case 'two-factor-invalid':
+      return '验证码不正确，请重新输入。'
+    case 'two-factor-unavailable':
+      return '验证会话已过期，请重新输入账号密码登录。'
+    case 'turnstile-required':
+      return '站方已开启 Turnstile 人机校验，插件无法完成这一步；请在控制台复制访问令牌后手动填入。'
+    case 'token-unavailable':
+      return '登录成功，但站方没有回读访问令牌；请在控制台的系统访问令牌页复制一个，手动填入下方。'
+    case 'unreachable':
+    case 'timeout':
+    case 'gateway-error':
+      return '无法连接 NowCoding 控制台，请检查网络后重试。'
+    default:
+      return messageOf(error)
+  }
+}
+
 /** Human-readable error copy for one route failure. */
 function messageOf(error: unknown): string {
   if (error instanceof NowCodingApiError && error.code === 'settings-conflict') {
@@ -115,6 +141,13 @@ export function NowCodingSettingsSection(): ReactElement | null {
   const [quota, setQuota] = useState<NowCodingQuotaView | null>(null)
   const [quotaLoading, setQuotaLoading] = useState(false)
   const [quotaError, setQuotaError] = useState<string | null>(null)
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginCode, setLoginCode] = useState('')
+  const [loginChallenge, setLoginChallenge] = useState(false)
+  const [loggingIn, setLoggingIn] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const [loginNotice, setLoginNotice] = useState<string | null>(null)
 
   const refreshQuota = useCallback(async (): Promise<void> => {
     setQuotaLoading(true)
@@ -167,6 +200,56 @@ export function NowCodingSettingsSection(): ReactElement | null {
       }
     } finally {
       setSaving(false)
+    }
+  }
+
+  /** Adopt a finished sign-in: drop the password, re-read the document, refresh the balance. */
+  const adoptSignIn = async (view: NowCodingLoginView): Promise<void> => {
+    if (view.status !== 'ok') return
+    setLoginPassword('')
+    setLoginCode('')
+    setLoginChallenge(false)
+    const next = await getNowCodingSettings()
+    setEnvelope(next)
+    setDrafts(draftsOf(next))
+    const rotated = view.tokenSource === 'generated' ? '站方本次新签发了一个访问令牌。' : ''
+    setLoginNotice(`已登录 ${view.username}（用户 ID ${view.userId}），面板令牌与用户 ID 已写入配置。${rotated}`)
+    void refreshQuota()
+  }
+
+  /** Exchange the account credentials for the console credential pair. */
+  const signIn = async (): Promise<void> => {
+    setLoggingIn(true)
+    setLoginError(null)
+    setLoginNotice(null)
+    try {
+      const view = await panelLogin(loginUsername.trim(), loginPassword)
+      if (view.status === 'two-factor-required') {
+        setLoginChallenge(true)
+        // The Host holds the half-finished session, so the password is not needed again.
+        setLoginPassword('')
+        setLoginNotice('该账号开启了两步验证，请输入认证器应用中的验证码。')
+        return
+      }
+      await adoptSignIn(view)
+    } catch (caught) {
+      setLoginError(loginMessageOf(caught))
+    } finally {
+      setLoggingIn(false)
+    }
+  }
+
+  /** Answer the challenge with the code the user typed. */
+  const submitLoginCode = async (): Promise<void> => {
+    setLoggingIn(true)
+    setLoginError(null)
+    setLoginNotice(null)
+    try {
+      await adoptSignIn(await panelTwoFactorLogin(loginCode.trim()))
+    } catch (caught) {
+      setLoginError(loginMessageOf(caught))
+    } finally {
+      setLoggingIn(false)
     }
   }
 
@@ -328,7 +411,7 @@ export function NowCodingSettingsSection(): ReactElement | null {
       </div>
 
       <div className={css.card}>
-        <p className={css.cardIntro}>订阅（月卡）余量需要控制台凭据：控制台接口不接受 sk- 开头的模型 Key。两项都留空时，卡片显示按量余额。</p>
+        <p className={css.cardIntro}>订阅（月卡）余量需要控制台凭据：控制台接口不接受 sk- 开头的模型 Key。用下面的账号登录会自动填入这两项，也可以手动填写；两项都留空时，卡片显示按量余额。</p>
 
         <div className={css.row}>
           <div className={css.rowText}>
@@ -388,6 +471,89 @@ export function NowCodingSettingsSection(): ReactElement | null {
             )}
           </div>
         </div>
+      </div>
+
+      <div className={css.card}>
+        <p className={css.cardIntro}>用 NowCoding 账号登录，自动获取上面的控制台凭据：密码只随这一次登录请求发出、不写入配置，换到的访问令牌由 Host 直接写进配置、不回传浏览器。</p>
+
+        <div className={css.row}>
+          <div className={css.rowText}>
+            <label className={css.title} htmlFor="nowcoding-login-username">账号</label>
+            <span className={css.desc}>站方控制台的用户名或邮箱。</span>
+          </div>
+          <div className={css.control}>
+            <input
+              id="nowcoding-login-username"
+              className={css.input}
+              type="text"
+              autoComplete="username"
+              value={loginUsername}
+              disabled={disabled || loggingIn}
+              onChange={event => { setLoginUsername(event.currentTarget.value) }}
+            />
+          </div>
+        </div>
+
+        <div className={css.row}>
+          <div className={css.rowText}>
+            <label className={css.title} htmlFor="nowcoding-login-password">密码</label>
+            <span className={css.desc}>只用于本次登录换取令牌；登录成功后即从页面清除。</span>
+          </div>
+          <div className={css.control}>
+            <input
+              id="nowcoding-login-password"
+              className={css.input}
+              type="password"
+              autoComplete="current-password"
+              value={loginPassword}
+              disabled={disabled || loggingIn}
+              onKeyDown={event => { if (event.key === 'Enter') void signIn() }}
+              onChange={event => { setLoginPassword(event.currentTarget.value) }}
+            />
+          </div>
+        </div>
+
+        {loginChallenge && (
+          <div className={css.row}>
+            <div className={css.rowText}>
+              <label className={css.title} htmlFor="nowcoding-login-code">两步验证码</label>
+              <span className={css.desc}>认证器应用的 6 位验证码，或一个 8 位备用码。</span>
+            </div>
+            <div className={css.control}>
+              <input
+                id="nowcoding-login-code"
+                className={css.input}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={loginCode}
+                disabled={disabled || loggingIn}
+                onKeyDown={event => { if (event.key === 'Enter') void submitLoginCode() }}
+                onChange={event => { setLoginCode(event.currentTarget.value) }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className={css.row}>
+          <div className={css.rowText}>
+            <span className={css.title}>获取面板凭据</span>
+            <span className={css.desc}>登录成功后订阅余量与按量余额立即可读。站方若开启 Turnstile 人机校验，这一步在插件里无法完成，请改用手动填写。</span>
+          </div>
+          <div className={css.control}>
+            <button
+              type="button"
+              className={css.buttonPrimary}
+              disabled={disabled || loggingIn || (loginChallenge ? loginCode.trim() === '' : loginUsername.trim() === '' || loginPassword === '')}
+              onClick={() => { void (loginChallenge ? submitLoginCode() : signIn()) }}
+            >
+              {loggingIn ? '登录中…' : loginChallenge ? '提交验证码' : '登录'}
+            </button>
+          </div>
+        </div>
+
+        {loginError !== null && <p className={css.error} role="alert">{loginError}</p>}
+        {loginNotice !== null && <p className={css.notice} role="status">{loginNotice}</p>}
       </div>
 
       <div className={css.card}>

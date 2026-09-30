@@ -79,8 +79,8 @@ Open **DSH Settings → NowCoding**. The page reaches the Host through the plugi
 | Fast mode | off | Send `service_tier` on every fast-capable model. |
 | Fast tier value | `priority` | Wire spelling: `priority` (the pre-rename spelling, safest on a gateway that predates it) or `fast`. |
 | Sidebar balance card | on | Show the remaining-quota card above Settings in the left sidebar. |
-| Panel user ID | (blank) | Dashboard user id, sent as `New-Api-User`. Required by the console chain that reports a monthly plan. |
-| Panel access token | (blank) | Dashboard token from the console's system-access-token page. Only it can read a plan's allowance, because the console chain rejects the `sk-` key. Blank leaves the card on the pay-as-you-go wallet. |
+| Panel user ID | (blank) | Dashboard user id, sent as `New-Api-User`. Required by the console chain that reports a monthly plan. Signing in fills it. |
+| Panel access token | (blank) | Dashboard token from the console's system-access-token page. Only it can read a plan's allowance, because the console chain rejects the `sk-` key. Blank leaves the card on the pay-as-you-go wallet. Signing in fills it. |
 
 Every field also exists as a composition field, so a profile can pin only what it needs and let the settings layer override the rest:
 
@@ -146,6 +146,27 @@ GET {origin}/api/status              public; supplies quota_per_unit
 
 The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore takes a second credential on its settings page: the dashboard user id and an access token from the console's system-access-token page. With both set, the card shows the plan's allowance and its consumption against it, matching the console.
 
+### Signing in instead of copying the token
+
+The settings page obtains that credential for you. Its sign-in block takes the NowCoding account name and password, performs the console login, and writes the resulting token and user id into the two fields above.
+
+```
+POST {origin}/api/user/login        { username, password }   -> session cookie + account document
+POST {origin}/api/user/login/2fa    { code }                 only when the answer sets require_2fa
+GET  {origin}/api/user/self/access-token                     -> the account's dashboard token
+GET  {origin}/api/user/token                                 -> issues one, rotating an existing token
+```
+
+**The password is used once and stored nowhere.** It travels to the gateway in that single login request; the Host keeps it for the duration of the call, never writes it to the settings store, and never returns it to the page, which clears the field as soon as the login settles. The token that comes back is written by the Host process, so it does not ride a response either.
+
+The token is read over the session cookie the login set. The plugin tries the read-only routes first and reaches `/api/user/token` — the route the console itself labels a reset — only when the account holds no token, so an existing token is not rotated out from under your other tools.
+
+Three things worth knowing before you rely on it:
+
+- **Turnstile stops it.** `GET /api/status` reports `turnstile_check`, which is off on this deployment. With it on, only a browser can answer the challenge; the sign-in reports `turnstile-required` and points you at the manual field.
+- **2FA is supported.** An account with an authenticator app gets a second step in the same block, and the half-finished session lives in the Host for five minutes.
+- **Signing in is not a model key.** The console credential reads a plan's allowance; chat requests still need an `sk-` key from the console's token page.
+
 Amounts in that document are **raw quota units**, not currency: a displayed amount is `raw / quota_per_unit`, and `quota_per_unit` (500000 on this deployment) comes from the public status document. The reader divides by the value the gateway reports and records the divisor in every snapshot, so a wrong one is visible rather than silent.
 
 **A pay-as-you-go wallet** needs only the model key, and is read from the OpenAI-compatible billing pair behind the same authentication as `/v1/models`:
@@ -172,6 +193,7 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 2. **A turn completes.** Pick `gpt-5.6-sol` (or any model your group serves) and send a message. Text streams, tool calls run, and the session's token accounting fills in.
 3. **The balance reads.** The sidebar card and the settings page both show a remaining balance. If it shows an error, its code says whether the key was rejected (`unauthorized`) or the gateway could not be reached (`unreachable`).
 4. **Fast mode is visible in the request.** With the `-fast` entry selected, the request body carries `service_tier`; check the response's echoed tier to learn whether the channel forwards it.
+5. **Sign-in fills the console credential.** On the settings page, the sign-in block with the account name and password writes Panel user ID and Panel access token and switches the balance to the plan's allowance. A refused password reports so in Chinese; a deployment with Turnstile on reports that instead.
 
 ## Update
 
@@ -218,6 +240,7 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 | `src/fast.ts` | Whether one request sends `service_tier`, and what happens when it cannot. |
 | `src/models.ts` | Exact-route metadata answering `resolveModel` and `listModels`. |
 | `src/quota.ts` | The remaining-quota reader and its normalization. |
+| `src/panel-login.ts` | The console sign-in that yields the dashboard token and user id. |
 | `src/settings-routes.ts` | The fenced `/nowcoding/api` route and its browser-trust policy. |
 | `src/settings-shared.ts` | Settings vocabulary shared by both halves, free of Host-only imports. |
 | `src/adapter.ts`, `src/serialize.ts`, `src/sse.ts`, `src/translate.ts`, `src/transport.ts`, `src/wire.ts` | The OpenAI-compatible streaming adapter. |
@@ -231,7 +254,10 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 - **The catalog is a snapshot.** It is dated in `src/catalog.ts` and corrected by configuration rather than by a release; nothing in the adapter assumes the list is current.
 - **Fast mode cannot be verified from outside.** Whether a channel forwards `service_tier` is a management-side setting; the plugin can send the field and report the echoed tier, and nothing more.
 - **The balance is key-scoped or account-scoped depending on a hidden switch.** new-api can report either the API key's own quota or the account's, chosen by a server setting the gateway does not publish. The card labels what it read without claiming which one it is.
-- **A subscription balance needs a second credential.** The console chain rejects the model key, so the plugin takes a dashboard user id and access token; without them the card reports the pay-as-you-go wallet instead. Other console APIs are out of scope.
+- **A subscription balance needs a second credential.** The console chain rejects the model key, so the plugin takes a dashboard user id and access token, obtained by signing in or pasted by hand; without them the card reports the pay-as-you-go wallet instead. Other console APIs are out of scope.
+- **Sign-in is a password login, not OAuth.** The gateway can offer GitHub, LinuxDO, WeChat, Telegram, and OIDC sign-in; all are off on this deployment, and an OAuth flow would need a browser redirect this plugin cannot host. Username and password, plus 2FA, is the supported path.
+- **A Turnstile deployment cannot be signed into from here.** Only a browser can solve the challenge; the manual token field remains the way in.
+- **Client copy is inline Chinese.** The Harness expects product copy in typed locale dictionaries, which needs `@deepseek-ai/dsh-client-locale` and a locale registration; that is later work.
 - **No account rotation.** One key per route; a second account is a second profile or a second environment variable.
 
 ## License

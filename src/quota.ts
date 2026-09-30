@@ -358,9 +358,17 @@ export function createQuotaReader(options: NowCodingQuotaReaderOptions): NowCodi
       const token = (options.panelToken ?? '').trim()
       if (token.length > 0) {
         const subscription = await readSubscription(new URL(options.baseURL).origin, signal)
-        // A dashboard token without an active plan is a normal state: the user
-        // holds a wallet balance instead, which the relay chain reports.
         if (subscription !== undefined) return subscription
+        // A dashboard token without an active plan is a normal state: the user
+        // holds a wallet balance instead, which the relay chain reports. That
+        // chain authenticates with the model key, which signing in does not
+        // supply, so a token-only account stops here with a reason.
+        if (options.apiKey.length === 0) {
+          throw new NowCodingQuotaError(
+            'unprocessable',
+            'this account has no active subscription plan, and no model API key is configured to read the wallet balance instead',
+          )
+        }
       }
       return readBilling(signal)
     },
