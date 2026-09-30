@@ -4,7 +4,7 @@
 
 Unofficial [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) LLM provider plugin for the **NowCoding** gateway ([nowcoding.ai](https://nowcoding.ai/)).
 
-It registers a `nowcoding` provider route on `ctx.llm` with a built-in model catalog, the GPT fast tier, selectable reasoning levels, a remaining-quota reader, a settings page, and a balance card in the left sidebar.
+It registers a `nowcoding` provider route on `ctx.llm` with a built-in model catalog, the GPT fast tier, selectable reasoning levels, a remaining-quota reader, a detail page on the Plugins page, and a balance card in the left sidebar.
 
 > This is a community integration, not an official one. You need your own NowCoding account and API key, and NowCoding's terms apply. This project is not affiliated with NowCoding.
 
@@ -26,15 +26,15 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 - **Built-in model catalog.** The models the gateway publishes are shipped in the plugin, with context windows, output caps, input modalities, reasoning levels, and fast-tier capability. A `models` list replaces it; `modelOverrides` reshapes single entries; nothing about the catalog is compiled into the adapter.
 - **GPT fast mode.** Fast-capable GPT models get a second picker entry (`gpt-5.6-sol-fast`) that sends the same wire model with `service_tier`; a route default turns it on for every fast-capable model. See [Fast mode](#fast-mode) for the caveat that actually decides whether it takes effect.
 - **Selectable reasoning levels.** Each model declares the levels its picker offers and the spelling the request sends, so the level ids never leak into the wire format.
-- **Dedicated settings page.** **DSH Settings → NowCoding** holds the key, the endpoint, fast mode, and the sidebar switch, plus a balance block with a manual refresh. The Harness renders no second page for the same section.
+- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, and the sidebar switch, plus a balance block with a manual refresh. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
 - **Remaining-quota reader.** A card at the sidebar foot, directly beside Settings, shows either a monthly plan's allowance — read from the console with a dashboard token — or the pay-as-you-go wallet read with the same key chat uses.
-- **Live settings.** API key, endpoint, fast mode, and the sidebar switch are editable from DSH Settings and apply to the next request without a restart.
+- **Live settings.** API key, endpoint, fast mode, and the sidebar switch are editable on the detail page and apply to the next request without a restart.
 
 -----
 
 ## Requirements
 
-- **dsh `0.1.7-rc.2` or `0.2.0-rc.2`.** Both lines ship the same `ctx.llm` adapter contract, settings seam, and sidebar slot contract, so the peer range covers both. An older line nests a second copy of the seam into the profile, and the adapter then registers into a registry the running loop never reads.
+- **dsh `0.1.7-rc.2` or `0.2.0-rc.2`.** Both lines ship the same `ctx.llm` adapter contract, settings seam, and client slot contracts — the Plugins page's `plugins.bundle.config` among them — so the peer range covers both. An older line nests a second copy of the seam into the profile, and the adapter then registers into a registry the running loop never reads.
 - **Node.js `>=22`.**
 - **A NowCoding API key** (`sk-...`), from [nowcoding.ai](https://nowcoding.ai/).
 
@@ -70,7 +70,7 @@ dsh web
 
 ## Configure
 
-Open **DSH Settings → NowCoding**. The page reaches the Host through the plugin's own fenced `/nowcoding/api` route, because the settings RPC domain serves Host-owned namespaces through an allowlist that a third-party plugin cannot join.
+Open the sidebar's **Plugins** page and click **NowCoding**. The page reaches the Host through the plugin's own fenced `/nowcoding/api` route, because the settings RPC domain serves Host-owned namespaces through an allowlist that a third-party plugin cannot join.
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -144,11 +144,11 @@ GET {origin}/api/subscription/self   Authorization: Bearer <dashboard token>, Ne
 GET {origin}/api/status              public; supplies quota_per_unit
 ```
 
-The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore takes a second credential on its settings page: the dashboard user id and an access token from the console's system-access-token page. With both set, the card shows the plan's allowance and its consumption against it, matching the console.
+The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore takes a second credential on its detail page: the dashboard user id and an access token from the console's system-access-token page. With both set, the card shows the plan's allowance and its consumption against it, matching the console.
 
 ### Signing in instead of copying the token
 
-The settings page obtains that credential for you. Its sign-in block takes the NowCoding account name and password, performs the console login, and writes the resulting token and user id into the two fields above.
+The detail page obtains that credential for you. Its sign-in block takes the NowCoding account name and password, performs the console login, and writes the resulting token and user id into the two fields above.
 
 ```
 POST {origin}/api/user/login        { username, password }   -> session cookie + account document
@@ -183,7 +183,7 @@ Two properties of that pair are easy to get wrong, and the plugin handles them s
 
 A key with no quota limit reports the gateway's unlimited sentinel instead of a grant; the card shows "unlimited" rather than a balance computed against it.
 
-The card sits at the sidebar foot beside Settings (`sidebar.footer.action`), shows remaining over total with a progress bar, turns to a warning colour below 20%, refreshes on mount and every `quotaRefreshSeconds` (default 300, minimum 30), and draws nothing at all when its settings switch is off. Before a key is configured it says so instead of showing an error, and a failed read offers a retry rather than a stale number. The settings page shows the same figures with a manual refresh.
+The card sits at the sidebar foot beside Settings (`sidebar.footer.action`), shows remaining over total with a progress bar, turns to a warning colour below 20%, refreshes on mount and every `quotaRefreshSeconds` (default 300, minimum 30), and draws nothing at all when its settings switch is off. Before a key is configured it says so instead of showing an error, and a failed read offers a retry rather than a stale number. The detail page shows the same figures with a manual refresh.
 
 The reader is a host-side client (`src/quota.ts`) with an injected transport, so it is unit-tested without a network and can be reused outside the card. Failures carry a stable code — `unreachable`, `unauthorized`, `gateway-error`, `unprocessable`, `timeout` — and the card reports which one it hit rather than showing a stale number as if it were current.
 
@@ -191,9 +191,9 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 
 1. **The route appears.** Settings → Models lists a **NowCoding** route with the shipped catalog.
 2. **A turn completes.** Pick `gpt-5.6-sol` (or any model your group serves) and send a message. Text streams, tool calls run, and the session's token accounting fills in.
-3. **The balance reads.** The sidebar card and the settings page both show a remaining balance. If it shows an error, its code says whether the key was rejected (`unauthorized`) or the gateway could not be reached (`unreachable`).
+3. **The balance reads.** The sidebar card and the detail page both show a remaining balance. If it shows an error, its code says whether the key was rejected (`unauthorized`) or the gateway could not be reached (`unreachable`).
 4. **Fast mode is visible in the request.** With the `-fast` entry selected, the request body carries `service_tier`; check the response's echoed tier to learn whether the channel forwards it.
-5. **Sign-in fills the console credential.** On the settings page, the sign-in block with the account name and password writes Panel user ID and Panel access token and switches the balance to the plan's allowance. A refused password reports so in Chinese; a deployment with Turnstile on reports that instead.
+5. **Sign-in fills the console credential.** On the detail page, the sign-in block with the account name and password writes Panel user ID and Panel access token and switches the balance to the plan's allowance. A refused password reports so in Chinese; a deployment with Turnstile on reports that instead.
 
 ## Update
 
@@ -216,7 +216,7 @@ Restart `dsh web` afterwards, then hard-refresh. Replace `web` with another prof
 dsh plugin --profile web remove @elves-ai/dsh-llm-nowcoding
 ```
 
-This removes the package and its bundle mount, not the settings values. Clear the API key on the NowCoding settings page first if you want it gone; the stored value lives in the harness settings store, not in this package.
+This removes the package and its bundle mount, not the settings values. Clear the API key on the NowCoding detail page first if you want it gone; the stored value lives in the harness settings store, not in this package.
 
 -----
 
@@ -244,7 +244,7 @@ pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 | `src/settings-routes.ts` | The fenced `/nowcoding/api` route and its browser-trust policy. |
 | `src/settings-shared.ts` | Settings vocabulary shared by both halves, free of Host-only imports. |
 | `src/adapter.ts`, `src/serialize.ts`, `src/sse.ts`, `src/translate.ts`, `src/transport.ts`, `src/wire.ts` | The OpenAI-compatible streaming adapter. |
-| `src/client/` | The browser half: the settings page, the sidebar balance card, and their shared wire client. |
+| `src/client/` | The browser half: the plugin detail page, the sidebar balance card, and their shared wire client. |
 
 [AGENTS.md](AGENTS.md) carries the development rules, the contracts that must not drift, and what to run for which change.
 

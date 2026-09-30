@@ -13,12 +13,13 @@
  * 2. a configurable-provider entry, so configuration surfaces offer the route
  *    and name the section that edits it;
  * 3. the fenced `/nowcoding/api` route, which is how the sidebar quota card
- *    reads the balance.
+ *    and the client half's detail page read the balance and the settings.
  *
- * Configuration is not registered here. The harness keys a plugin's settings
- * section by its Loader entry id and projects the exported `Config` schema into
- * a form, so the NowCoding page exists because the plugin is mounted — see
- * `config.ts` for the fields and `settingsNs` for the id they are keyed by.
+ * Configuration is not registered here. The harness projects the exported
+ * `Config` schema into a settings form keyed by the Loader entry id; this
+ * plugin turns that projection off, because its client half renders the
+ * configuration page itself — on the Plugins page's bundle detail, the seat
+ * the host names `plugins.bundle.config` — see `config.ts` for the fields.
  *
  * @module @elves-ai/dsh-llm-nowcoding
  */

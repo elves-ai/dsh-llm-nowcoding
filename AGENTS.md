@@ -27,7 +27,7 @@ The one rule that matters most: **the active dsh profile owns every `@deepseek-a
 | `src/translate.ts` | Wire chunks to `StreamChunk`. |
 | `src/transport.ts` | `fetch`, timeouts, cancellation, and failure classification. |
 | `src/adapter.ts` | `NowCodingAdapter extends LlmAdapter`. Delegates metadata to `models.ts`. |
-| `src/client/` | The browser half: the settings page, the sidebar balance card, and their shared wire client. |
+| `src/client/` | The browser half: the plugin detail page, the sidebar balance card, and their shared wire client. |
 | `tests/` | Unit specs. No spec may reach the network. |
 
 Each fact has one home. The catalog is data only in `catalog.ts`; the fast decision only in `fast.ts`; the quota field semantics only in `quota.ts`. Do not restate them in the adapter, the route, or the client.
@@ -78,7 +78,7 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 - `Config` fields are `Volatile<T>` references. Read `.get()` at the start of each operation; never capture a value in `apply`, or a settings save will not reach the next request.
 - `NOWCODING_SETTINGS_NAMESPACE` is only the **default** for the `settingsNs` field. A profile that mounts the plugin under a different row id must set `settingsNs` to match, which is why the route reads it from the resolved options instead of importing the constant.
 - `apiKey` is `role('secret')`. It never rides a settings response; surfaces only learn whether one is set. Do not add a code path that echoes it.
-- **This plugin ships its own settings page, so `apply` calls `ctx.settings.configure({ auto: false })`.** Without it the Harness would generate a second page over the same section, and two editors would race on one revision. The call is guarded by `ctx.get('settings')` so a headless deployment without the service still loads.
+- **This plugin ships its own configuration page — the client half renders it on the Plugins page's bundle detail — so `apply` calls `ctx.settings.configure({ auto: false })`.** Without it the Harness would generate a settings section over the same namespace, and two editors would race on one revision. The call is guarded by `ctx.get('settings')` so a headless deployment without the service still loads.
 
 ### Fast mode
 
@@ -118,7 +118,7 @@ The success envelope is `{ ok: true, value }` and the failure envelope is `{ ok:
 
 ### The browser half
 
-- It registers two slots through `ctx.slots.inject`: `settings.section` (the NowCoding page) and `sidebar.footer.action` (the balance card). Registrations are effect-based; a bare `slots.register` into an undeclared slot is an error at load.
+- It registers two slots through `ctx.slots.inject`: `plugins.bundle.config` (the NowCoding detail page, keyed by the package name `@elves-ai/dsh-llm-nowcoding` — the page a click into the plugin on the sidebar's Plugins page opens) and `sidebar.footer.action` (the balance card). Nothing registers into `settings.section`: the configuration page moved off DSH Settings onto the bundle page, and the Host-side `configure({ auto: false })` keeps the schema projection from reappearing there. Registrations are effect-based; a bare `slots.register` into an undeclared slot is an error at load. The slot contract lives in `ui-plugin-manager`'s `slot-contract.ts` on both target lines — re-check that file before widening the peer range, the same way the settings seams are re-checked.
 - It must not import Node builtins or any Host-only package. `tsdown.config.ts` enforces this with a purity gate that rejects a non-platform `@deepseek-ai/*` value import at build time.
 - The card takes no props and holds no configuration. Every decision it renders — enabled, amounts, refresh interval — arrives from `quota.get`.
 - Product copy is Chinese, matching the users this plugin serves. Keep it in the component; the Harness locale dictionaries are not available to an out-of-tree bundle.

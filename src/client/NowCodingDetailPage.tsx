@@ -1,18 +1,19 @@
 /**
- * DRAFT (not installed): the "NowCoding" page for `settings.section`.
+ * The NowCoding detail page — the body of the page a click into this plugin on
+ * the sidebar's Plugins page opens (`plugins.bundle.config`). The same content
+ * used to be a DSH Settings section; the host moved a bundle's configuration
+ * onto its own detail page, and the plugin followed.
  *
- * The on-disk client half has no settings page — it relies on the Models page's
- * generated provider editor. Drop this file in only if the product wants the
- * dedicated page the brief describes: API key (write-only, blank keeps the
- * current one, explicit clear), Base URL, the GPT fast switch with its
- * `allow_service_tier` caveat, the wire spelling, the sidebar-card switch, and
- * a quota block with an explicit refresh.
+ * The page holds every control the plugin configures: API key (write-only,
+ * blank keeps the current one, explicit clear), Base URL, the GPT fast switch
+ * with its `allow_service_tier` caveat, the wire spelling, the sidebar-card
+ * switch, the console sign-in, and a quota block with an explicit refresh.
  *
- * No shell import: the component takes no props (the shell's `close` is
- * unused) and every control is plain HTML styled by the CSS module, so the
- * bundle pins no client-build types. The wire face is `./api.ts`.
+ * No shell import: the component takes no props (the seat passes `view` only)
+ * and every control is plain HTML styled by the CSS module, so the bundle pins
+ * no client-build types. The wire face is `./api.ts`.
  *
- * @module @elves-ai/dsh-llm-nowcoding/client/NowCodingSettingsSection
+ * @module @elves-ai/dsh-llm-nowcoding/client/NowCodingDetailPage
  */
 
 import { useCallback, useEffect, useState, type ReactElement } from 'react'
@@ -36,7 +37,7 @@ import {
   type NowCodingSettingsEnvelope,
   type NowCodingSettingsOp,
 } from './api.ts'
-import css from './NowCodingSettingsSection.module.css'
+import css from './NowCodingDetailPage.module.css'
 
 /** Local drafts for the five editable controls. */
 interface Drafts {
@@ -126,10 +127,10 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * Render the NowCoding settings page.
- * @returns the section element tree.
+ * Render the NowCoding detail page.
+ * @returns the page element tree.
  */
-export function NowCodingSettingsSection(): ReactElement | null {
+export function NowCodingDetailPage(): ReactElement | null {
   const [envelope, setEnvelope] = useState<NowCodingSettingsEnvelope | null>(null)
   const [drafts, setDrafts] = useState<Drafts>(INITIAL_DRAFTS)
   const [loading, setLoading] = useState(true)
