@@ -264,6 +264,11 @@ export interface ResolvedNowCodingModel extends NowCodingCatalogModel {
  * needs. `hiddenModels` removes ids from the result without deleting their
  * catalog entry.
  *
+ * An absent `models` and an EMPTY one are the same thing. The settings seam
+ * projects every volatile field, so a route that never configured `models`
+ * still reads `[]` rather than `undefined` — matching on absence alone would
+ * serve an empty catalog and starve the model picker.
+ *
  * @param config - the catalog-shaping configuration.
  * @returns the served catalog in configuration order.
  */

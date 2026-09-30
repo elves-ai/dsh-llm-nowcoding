@@ -229,14 +229,22 @@ export interface ResolvedNowCodingModel extends NowCodingCatalogModel {
  * needs. `hiddenModels` removes ids from the result without deleting their
  * catalog entry.
  *
+ * An absent `models` and an EMPTY one are the same thing. The settings seam
+ * projects every volatile field, so a route that never configured `models`
+ * still reads `[]` rather than `undefined` — matching on absence alone would
+ * serve an empty catalog and starve the model picker.
+ *
  * @param config - the catalog-shaping configuration.
  * @returns the served catalog in configuration order.
  */
 export function effectiveCatalog(config: NowCodingCatalogConfig): readonly ResolvedNowCodingModel[] {
   // A configured list carries only what the user wrote; a shipped entry carries
   // its own name and capacity. Both flow through the same defaulting chain.
-  const base: readonly (NowCodingCatalogModel | NowCodingModelSpec)[] = config.models ?? NOWCODING_BUILTIN_CATALOG
-  const overrides = config.models === undefined ? config.modelOverrides ?? {} : {}
+  // An empty `models` means the same as an absent one (see the JSDoc), so both
+  // fall back to the shipped catalog and keep the overrides channel open.
+  const configured = config.models !== undefined && config.models.length > 0 ? config.models : undefined
+  const base: readonly (NowCodingCatalogModel | NowCodingModelSpec)[] = configured ?? NOWCODING_BUILTIN_CATALOG
+  const overrides = configured === undefined ? config.modelOverrides ?? {} : {}
   const defaultContextWindow = config.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW
   const defaultMaxTokens = config.defaultMaxTokens ?? DEFAULT_MAX_TOKENS
   const hidden = new Set(config.hiddenModels ?? [])

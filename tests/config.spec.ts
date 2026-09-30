@@ -7,6 +7,18 @@ describe('effectiveCatalog', () => {
     expect(effectiveCatalog({}).map(entry => entry.id)).toEqual(NOWCODING_BUILTIN_CATALOG.map(entry => entry.id))
   })
 
+  it('serves the shipped catalog when models resolves to an empty array', () => {
+    // The settings seam projects absent volatile arrays as [], so an empty
+    // list must fall back like an absent one or the picker starves.
+    expect(effectiveCatalog({ models: [] }).map(entry => entry.id)).toEqual(NOWCODING_BUILTIN_CATALOG.map(entry => entry.id))
+  })
+
+  it('still applies modelOverrides beside an empty models array', () => {
+    const catalog = effectiveCatalog({ models: [], modelOverrides: { 'gpt-5.6-sol': { name: 'Renamed' } } })
+    expect(catalog).toHaveLength(NOWCODING_BUILTIN_CATALOG.length)
+    expect(catalog.find(entry => entry.id === 'gpt-5.6-sol')?.name).toBe('Renamed')
+  })
+
   it('replaces the catalog wholesale when models is configured', () => {
     const catalog = effectiveCatalog({ models: [{ id: 'acme-think', contextWindow: 8_192 }] })
     expect(catalog.map(entry => entry.id)).toEqual(['acme-think'])

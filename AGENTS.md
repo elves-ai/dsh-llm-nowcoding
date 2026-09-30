@@ -195,6 +195,7 @@ Deferred work, in the order it is worth doing:
 ## Gotchas
 
 - **A `-fast` suffix in a request body is a bug.** It is a picker id; `wireModelId()` strips it.
+- **Schemastery resolves an absent volatile array to `[]`, not `undefined`.** Any "if configured" check over `models` / `hiddenModels` / `visibleModels` must treat an empty list like an absent one — `??` alone starves the catalog and empties the model picker.
 - **`lib/types` is generated.** `tsdown` runs with `clean: false` precisely so it cannot wipe the declaration tree; keep it that way, and never hand-edit `lib/`.
 - **`@deepseek-ai/dsh-client-runtime` no longer exists.** It was retired after `0.1.1-rc.2`; a 0.1.7-era client bundle types its context from `@deepseek-ai/cordis`.
 - **`gpt-5.6-luna` is redirected to `gpt-5.6-terra`** and billed at the terra rate. The catalog entry says so; do not quietly drop the note.
