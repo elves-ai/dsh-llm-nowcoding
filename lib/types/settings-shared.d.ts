@@ -140,9 +140,8 @@ export interface NowCodingSettings {
     /** Endpoint base; model, quota, and pricing paths are resolved against it. */
     baseURL?: string;
     /**
-     * Route-level default for the GPT fast tier. `true` sends `service_tier` on
-     * every fast-capable model, which the gateway bills at its higher fast rate.
-     * A model picked by its `-fast` id alias overrides this per request.
+     * Legacy global fast flag, accepted for existing profiles but ignored.
+     * The session-selected `-fast` alias alone requests the higher-billed tier.
      */
     fast?: boolean;
     /** Wire spelling sent when fast mode is on. */

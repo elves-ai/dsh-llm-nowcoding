@@ -25,11 +25,11 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 - **A `nowcoding` provider route.** Install into any dsh profile; the route appears in the model picker with the shipped catalog, and serves OpenAI-compatible streaming chat completions.
 - **Built-in model catalog.** The models the gateway publishes are shipped in the plugin, with context windows, output caps, input modalities, reasoning levels, and fast-tier capability. A `models` list replaces it; `modelOverrides` reshapes single entries; nothing about the catalog is compiled into the adapter.
 - **Model allowlist with a live picker.** The detail page fetches the key-scoped `GET /v1/models` listing through the plugin's route and renders it as a searchable checklist; the models you keep are the ones the picker serves (`visibleModels`), and the decision applies without a restart.
-- **GPT fast mode.** Fast-capable GPT models get a second picker entry (`gpt-5.6-sol-fast`) that sends the same wire model with `service_tier`; a route default turns it on for every fast-capable model. See [Fast mode](#fast-mode) for the caveat that actually decides whether it takes effect.
+- **GPT fast mode.** A lightning button immediately to the left of the composer model selector switches the current session between standard and fast mode. It selects the plain model or its `-fast` alias without changing the reasoning level or other sessions; only the alias sends `service_tier`. See [Fast mode](#fast-mode) for the gateway caveat.
 - **Selectable reasoning levels.** Each model declares the levels its picker offers and the spelling the request sends, so the level ids never leak into the wire format.
-- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast mode, the sidebar switch, the model allowlist, the console sign-in, and a balance block with a manual refresh. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
+- **Dedicated detail page.** Clicking **NowCoding** in the sidebar's Plugins page opens the plugin's own detail page: the key, the endpoint, fast-tier wire spelling, the sidebar switch, the model allowlist, the console sign-in, and a balance block with a manual refresh. Nothing sits in DSH Settings — the host gives a bundle that ships a browser half its own page (`plugins.bundle.config`), and the plugin renders the Harness no second page for the same namespace.
 - **Remaining-quota reader.** A card at the sidebar foot, directly beside Settings, shows either a monthly plan's allowance — read from the console with a dashboard token or the session cookie an account sign-in answers — or the pay-as-you-go wallet read with the same key chat uses.
-- **Live settings.** API key, endpoint, fast mode, and the sidebar switch are editable on the detail page and apply to the next request without a restart.
+- **Live settings.** API key, endpoint, fast-tier wire spelling, and the sidebar switch are editable on the detail page and apply to the next request without a restart. Fast mode itself is controlled in the composer for the current session.
 
 -----
 
@@ -77,7 +77,7 @@ Open the sidebar's **Plugins** page and click **NowCoding**. The page reaches th
 |---|---|---|
 | API Key | (blank) → `$NOWCODING_API_KEY` | Sent as `Authorization: Bearer`. Stored as a secret: it never rides a settings response, so the page only shows whether one is set. Saving with the field blank keeps the current key; **Clear** removes it. |
 | Base URL | `https://nowcoding.ai/v1` | Endpoint base for the chat route and the billing pair. The gateway's Anthropic-compatible front end lives at `https://nowcoding.ai`; this plugin speaks the OpenAI-compatible route, so the base carries `/v1`. |
-| Fast mode | off | Send `service_tier` on every fast-capable model. |
+| Fast mode (composer lightning) | standard | Switch only this session between the plain model and its `-fast` alias. The old global `fast` setting is accepted for existing profiles but ignored. |
 | Fast tier value | `priority` | Wire spelling: `priority` (the pre-rename spelling, safest on a gateway that predates it) or `fast`. |
 | Sidebar balance card | on | Show the remaining-quota card above Settings in the left sidebar. |
 | Kept models | empty → all | Model allowlist chosen on the detail page: fetch the listing, check the models to keep, and the picker serves only those. See **Models** below. |
@@ -92,7 +92,6 @@ Every field also exists as a composition field, so a profile can pin only what i
   config:
     apiKeyEnv: NOWCODING_API_KEY   # second account: point this at another variable
     baseURL: https://nowcoding.ai/v1
-    fast: false
     fastServiceTier: priority
     quotaCard: true
     quotaRefreshSeconds: 300
@@ -142,10 +141,9 @@ Reasoning choices are model-specific: GPT-6 Astra and GPT-6.1 Sol offer `low / m
 
 ## Fast mode
 
-OpenAI's fast mode is a request-body `service_tier`: `priority` or `fast` both select it, `priority` being the older spelling. The plugin sends it in two cases:
+OpenAI's fast mode is a request-body `service_tier`: `priority` or `fast` both select it, `priority` being the older spelling. The plugin sends it **only when the selected model id carries the `-fast` suffix and the catalog marks the base model fast-capable**. A plain id never sends the field, even if an existing profile still has `fast: true`; that legacy global setting is ignored.
 
-1. **The model id carries the `-fast` suffix.** Fast-capable models appear twice in the picker — `gpt-5.6-sol` and `gpt-5.6-sol-fast`. The suffix never reaches the gateway; the request carries `service_tier` and the plain wire id.
-2. **The route default is on.** With `fast: true` (or the settings switch), every fast-capable model is served at the fast tier, and a model the catalog does not mark fast-capable is left alone rather than sent a tier the gateway might reject.
+Click the lightning button immediately to the left of the composer model selector to switch the current session between `gpt-5.6-sol` and `gpt-5.6-sol-fast`. The lit lightning means fast is selected; the outlined lightning means standard. The button uses the host's advertised aliases, so model overrides and allowlists remain authoritative. It is absent for other providers and models with no offered fast tier, and disabled while the session is running, input is submitting, or model selection is in progress. A failed switch keeps the host-confirmed selection and shows an error. The picker and `/model` remain usable and update the same button state. The suffix never reaches the gateway: requests carry the plain wire id and, only in fast mode, `service_tier`. Switching preserves the reasoning level and does not change other sessions.
 
 **The caveat that decides whether this does anything.** The gateway is a new-api deployment, and new-api **filters `service_tier` out of requests by default**; a channel forwards it only when its own `allow_service_tier` switch is on. The gateway has that switch — its admin UI carries the label "允许 service_tier 透传" with the warning that allowing it may bill above the expected rate — but whether any given channel has it enabled is a management-side setting this plugin cannot read. So:
 

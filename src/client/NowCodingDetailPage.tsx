@@ -5,8 +5,8 @@
  * onto its own detail page, and the plugin followed.
  *
  * The page holds every control the plugin configures: API key (write-only,
- * blank keeps the current one, explicit clear), Base URL, the GPT fast switch
- * with its `allow_service_tier` caveat, the wire spelling, the sidebar-card
+ * blank keeps the current one, explicit clear), Base URL, the GPT fast-mode
+ * guidance and its `allow_service_tier` caveat, the wire spelling, the sidebar-card
  * switch, the model allowlist (a picker over the key-scoped listing the Host
  * fetches), the console sign-in, and a quota block with an explicit refresh.
  * The console credential is the sign-in's alone — the page carries no manual
@@ -51,7 +51,6 @@ import css from './NowCodingDetailPage.module.css'
 interface Drafts {
   apiKey: string
   baseURL: string
-  fast: boolean
   fastServiceTier: NowCodingFastServiceTier
   quotaCard: boolean
   visibleModels: readonly string[]
@@ -60,7 +59,6 @@ interface Drafts {
 const INITIAL_DRAFTS: Drafts = {
   apiKey: '',
   baseURL: NOWCODING_DEFAULT_BASE_URL,
-  fast: NOWCODING_SETTINGS_DEFAULTS.fast,
   fastServiceTier: NOWCODING_SETTINGS_DEFAULTS.fastServiceTier,
   quotaCard: NOWCODING_SETTINGS_DEFAULTS.quotaCard,
   visibleModels: NOWCODING_SETTINGS_DEFAULTS.visibleModels,
@@ -78,7 +76,6 @@ function draftsOf(envelope: NowCodingSettingsEnvelope): Drafts {
   return {
     apiKey: '',
     baseURL: typeof view.baseURL === 'string' && view.baseURL.length > 0 ? view.baseURL : NOWCODING_DEFAULT_BASE_URL,
-    fast: typeof view.fast === 'boolean' ? view.fast : NOWCODING_SETTINGS_DEFAULTS.fast,
     fastServiceTier: view.fastServiceTier ?? NOWCODING_SETTINGS_DEFAULTS.fastServiceTier,
     quotaCard: typeof view.quotaCard === 'boolean' ? view.quotaCard : NOWCODING_SETTINGS_DEFAULTS.quotaCard,
     visibleModels: view.visibleModels ?? NOWCODING_SETTINGS_DEFAULTS.visibleModels,
@@ -298,7 +295,6 @@ export function NowCodingDetailPage(): ReactElement | null {
     if (apiKey !== '') ops.push({ op: 'set', path: ['apiKey'], value: apiKey })
     if (baseURL === '') ops.push({ op: 'unset', path: ['baseURL'] })
     else ops.push({ op: 'set', path: ['baseURL'], value: baseURL })
-    ops.push({ op: 'set', path: ['fast'], value: drafts.fast })
     ops.push({ op: 'set', path: ['fastServiceTier'], value: drafts.fastServiceTier })
     ops.push({ op: 'set', path: ['quotaCard'], value: drafts.quotaCard })
     // An emptied allowlist unsets the field rather than storing an empty
@@ -430,18 +426,8 @@ export function NowCodingDetailPage(): ReactElement | null {
 
         <div className={css.row}>
           <div className={css.rowText}>
-            <span className={css.title}>启用 GPT 快速模式（fast）</span>
-            <span className={css.desc}>开启后，具备快速档的模型会在请求里带上 service_tier。需要站方渠道开启 allow_service_tier 透传，否则该参数会被静默剥离；快速档计费高于标准档。</span>
-          </div>
-          <div className={css.control}>
-            <input
-              type="checkbox"
-              className={css.checkbox}
-              checked={drafts.fast}
-              disabled={disabled}
-              aria-label="启用 GPT 快速模式（fast）"
-              onChange={event => { setDrafts({ ...drafts, fast: event.currentTarget.checked }) }}
-            />
+            <span className={css.title}>GPT 快速模式（fast）</span>
+            <span className={css.desc}>在对话输入框的模型左侧点击闪电切换当前会话的标准档／快速档；标准模型不会附带 service_tier。需要站方渠道开启 allow_service_tier 透传，快速档计费高于标准档。</span>
           </div>
         </div>
 

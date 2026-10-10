@@ -5,8 +5,8 @@
  * onto its own detail page, and the plugin followed.
  *
  * The page holds every control the plugin configures: API key (write-only,
- * blank keeps the current one, explicit clear), Base URL, the GPT fast switch
- * with its `allow_service_tier` caveat, the wire spelling, the sidebar-card
+ * blank keeps the current one, explicit clear), Base URL, the GPT fast-mode
+ * guidance and its `allow_service_tier` caveat, the wire spelling, the sidebar-card
  * switch, the model allowlist (a picker over the key-scoped listing the Host
  * fetches), the console sign-in, and a quota block with an explicit refresh.
  * The console credential is the sign-in's alone — the page carries no manual

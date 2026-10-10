@@ -13,7 +13,7 @@ import { type NowCodingCatalogModel } from './catalog.ts';
 import type { NowCodingFastServiceTier } from './settings-shared.ts';
 /** What one request should send for the fast tier. */
 export interface FastTierDecision {
-    /** Whether the request asked for the fast tier, by alias or by route default. */
+    /** Whether the request explicitly selected the fast alias. */
     readonly requested: boolean;
     /** `service_tier` value for the request body; absent omits the field entirely. */
     readonly serviceTier?: NowCodingFastServiceTier;
@@ -26,11 +26,12 @@ export interface FastTierDecision {
 }
 /**
  * Decide the fast tier for one request.
- * @param input - the requested model id, the route's fast default, the resolved catalog entry, and the configured wire spelling.
+ * @param input - the requested model id, ignored legacy route default, resolved catalog entry, and configured wire spelling.
  * @returns the decision; `serviceTier` appears only when the field should be sent.
  */
 export declare function decideFastTier(input: {
     modelId: string;
+    /** Deprecated; accepted for existing profiles/callers, never applied. */
     routeDefault: boolean;
     entry: NowCodingCatalogModel | undefined;
     wireValue: NowCodingFastServiceTier;

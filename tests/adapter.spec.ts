@@ -355,13 +355,23 @@ describe('NowCodingAdapter request mapping', () => {
     expect(calls[0]?.body.service_tier).toBe('priority')
   })
 
-  it('sends the configured wire spelling and honours the route fast default', async () => {
+  it('sends the configured wire spelling only for the fast alias', async () => {
     const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
     const adapter = new NowCodingAdapter({ options: () => options({ fast: true, fastServiceTier: 'fast' }), fetchImpl })
-    await collect(adapter.stream(request()))
+    await collect(adapter.stream(request({ model: FAST_MODEL })))
 
     expect(calls[0]?.body.model).toBe(MODEL)
     expect(calls[0]?.body.service_tier).toBe('fast')
+  })
+
+  it('turns fast off for the plain id despite a legacy global default', async () => {
+    const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
+    const adapter = new NowCodingAdapter({ options: () => options({ fast: true }), fetchImpl })
+    await collect(adapter.stream(request()))
+    await collect(adapter.stream(request({ model: FAST_MODEL })))
+    await collect(adapter.stream(request()))
+    expect(calls.map(call => Object.hasOwn(call.body, 'service_tier'))).toEqual([false, true, false])
+    expect(calls.map(call => call.body.model)).toEqual([MODEL, MODEL, MODEL])
   })
 
   it('omits service_tier entirely when the request is not fast', async () => {

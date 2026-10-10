@@ -11,10 +11,15 @@ describe('decideFastTier', () => {
       .toEqual({ requested: false })
   })
 
-  it('sends the configured spelling when the route default is on', () => {
-    expect(decideFastTier({ modelId: 'gpt-5.6-sol', routeDefault: true, entry: gpt, wireValue: 'priority' }))
-      .toEqual({ requested: true, serviceTier: 'priority' })
-    expect(decideFastTier({ modelId: 'gpt-5.6-sol', routeDefault: true, entry: gpt, wireValue: 'fast' }))
+  it('never upgrades a plain model even with a legacy route default', () => {
+    for (const wireValue of ['priority', 'fast'] as const) {
+      expect(decideFastTier({ modelId: 'gpt-5.6-sol', routeDefault: true, entry: gpt, wireValue }))
+        .toEqual({ requested: false })
+    }
+  })
+
+  it('sends the configured spelling for an explicit fast alias', () => {
+    expect(decideFastTier({ modelId: 'gpt-5.6-sol-fast', routeDefault: true, entry: gpt, wireValue: 'fast' }))
       .toEqual({ requested: true, serviceTier: 'fast' })
   })
 
@@ -24,12 +29,12 @@ describe('decideFastTier', () => {
   })
 
   it('drops the field rather than sending it for a model with no fast tier', () => {
-    expect(decideFastTier({ modelId: 'claude-sonnet-5', routeDefault: true, entry: claude, wireValue: 'priority' }))
+    expect(decideFastTier({ modelId: 'claude-sonnet-5-fast', routeDefault: true, entry: claude, wireValue: 'priority' }))
       .toEqual({ requested: true, droppedForModel: true })
   })
 
   it('drops the field for a model the catalog does not describe', () => {
-    expect(decideFastTier({ modelId: 'unknown', routeDefault: true, entry: undefined, wireValue: 'priority' }))
+    expect(decideFastTier({ modelId: 'unknown-fast', routeDefault: true, entry: undefined, wireValue: 'priority' }))
       .toEqual({ requested: true, droppedForModel: true })
   })
 

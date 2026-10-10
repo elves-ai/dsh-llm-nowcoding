@@ -113,7 +113,7 @@ export interface Config {
   baseURL: Volatile<string>
   /** Name shown by selectors and diagnostics. */
   displayName: Volatile<string>
-  /** Route-level default for the GPT fast tier. */
+  /** Legacy global fast flag; accepted but ignored. Use the session fast alias. */
   fast: Volatile<boolean>
   /** Wire spelling sent when fast mode is on. */
   fastServiceTier: Volatile<NowCodingFastServiceTier>
@@ -291,7 +291,7 @@ export interface NowCodingResolvedOptions {
   baseURL: string
   /** Name shown by selectors and diagnostics. */
   displayName: string
-  /** Route-level fast default. */
+  /** Legacy global fast flag; ignored by the request policy. */
   fast: boolean
   /** Wire spelling sent when fast mode is on. */
   fastServiceTier: NowCodingFastServiceTier

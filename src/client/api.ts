@@ -76,7 +76,7 @@ export interface NowCodingSettingsEnvelope {
 export interface NowCodingSettingsView {
   /** Endpoint base every model, quota, and pricing path is resolved against. */
   baseURL?: string
-  /** Route-level default for the GPT fast tier. */
+  /** Legacy global fast flag; accepted but ignored. Use the session fast alias. */
   fast?: boolean
   /** Wire spelling sent when fast mode is on. */
   fastServiceTier?: NowCodingFastServiceTier

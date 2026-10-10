@@ -37,7 +37,7 @@ type WireRole = WireMessage['role']
 export interface SerializeContext {
   /** The served catalog, which owns fast-tier and reasoning eligibility. */
   catalog: readonly NowCodingCatalogModel[]
-  /** Route-level fast default. */
+  /** Legacy global fast flag; accepted but ignored. Use the session fast alias. */
   fast: boolean
   /** Wire spelling sent when fast mode is on. */
   fastServiceTier: NowCodingFastServiceTier
