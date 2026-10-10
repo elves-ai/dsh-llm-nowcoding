@@ -684,7 +684,8 @@ describe('NowCodingAdapter metadata', () => {
       name: 'unknown-model',
     })
     const models = await adapter.listModels('nowcoding')
-    expect(models.map(model => model.id)).toContain(FAST_MODEL)
+    expect(models.map(model => model.id)).toContain(MODEL)
+    expect(models.map(model => model.id)).not.toContain(FAST_MODEL)
     expect(models.every(model => model.provider === 'nowcoding')).toBe(true)
   })
 

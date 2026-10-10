@@ -10,12 +10,12 @@ const CATALOG: readonly NowCodingCatalogModel[] = NOWCODING_BUILTIN_CATALOG.filt
 describe('listSelectableModels', () => {
   it('lists every selector entry when no allowlist is configured', () => {
     const ids = listSelectableModels('nowcoding', CATALOG).map(entry => entry.id)
-    expect(ids).toEqual(['gpt-5.6-sol', 'gpt-5.6-sol-fast', 'claude-haiku-4-5-20251001'])
+    expect(ids).toEqual(['gpt-5.6-sol', 'claude-haiku-4-5-20251001'])
   })
 
-  it('keeps a fast alias when the allowlist names its base model', () => {
+  it('lists a fast-capable model once when its base is allowed', () => {
     const ids = listSelectableModels('nowcoding', CATALOG, ['gpt-5.6-sol']).map(entry => entry.id)
-    expect(ids).toEqual(['gpt-5.6-sol', 'gpt-5.6-sol-fast'])
+    expect(ids).toEqual(['gpt-5.6-sol'])
   })
 
   it('keeps only the named model when the allowlist excludes the rest', () => {
@@ -25,27 +25,27 @@ describe('listSelectableModels', () => {
 
   it('shows everything again once the allowlist is emptied', () => {
     const ids = listSelectableModels('nowcoding', CATALOG, []).map(entry => entry.id)
-    expect(ids).toEqual(['gpt-5.6-sol', 'gpt-5.6-sol-fast', 'claude-haiku-4-5-20251001'])
+    expect(ids).toEqual(['gpt-5.6-sol', 'claude-haiku-4-5-20251001'])
   })
 
   it('ignores allowlist ids the catalog does not carry instead of failing', () => {
     const ids = listSelectableModels('nowcoding', CATALOG, ['brand-new-model', 'gpt-5.6-sol']).map(entry => entry.id)
-    expect(ids).toEqual(['gpt-5.6-sol', 'gpt-5.6-sol-fast'])
+    expect(ids).toEqual(['gpt-5.6-sol'])
   })
 
-  it('matches a hand-written alias id in the allowlist to its own row only', () => {
+  it('normalizes a legacy fast allowlist id to the base row', () => {
     const ids = listSelectableModels('nowcoding', CATALOG, ['gpt-5.6-sol-fast']).map(entry => entry.id)
-    expect(ids).toEqual(['gpt-5.6-sol-fast'])
+    expect(ids).toEqual(['gpt-5.6-sol'])
   })
 })
 
 describe('official model metadata projection', () => {
-  it('keeps vision available on base and fast picker rows', () => {
+  it('keeps vision on base rows and resolves unlisted fast aliases', () => {
     const rows = listSelectableModels('nowcoding', NOWCODING_BUILTIN_CATALOG, ['gpt-6.1-sol'])
-    expect(rows.map(row => row.id)).toEqual(['gpt-6.1-sol', 'gpt-6.1-sol-fast'])
+    expect(rows.map(row => row.id)).toEqual(['gpt-6.1-sol'])
     for (const row of rows) {
       expect(row.inputModalities).toEqual(['text', 'image'])
-      expect(resolveModelInfo({ provider: 'nowcoding', model: row.id, catalog: NOWCODING_BUILTIN_CATALOG }))
+      expect(resolveModelInfo({ provider: 'nowcoding', model: row.id + '-fast', catalog: NOWCODING_BUILTIN_CATALOG }))
         .toMatchObject({ context: { contextWindow: 1_050_000 }, defaultMaxTokens: 128_000, inputModalities: ['text', 'image'] })
     }
   })

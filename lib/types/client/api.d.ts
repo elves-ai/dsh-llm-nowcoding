@@ -135,6 +135,10 @@ export interface NowCodingServedModelView {
 export declare function getServedModels(): Promise<{
     models: readonly NowCodingServedModelView[];
 }>;
+/** Read fast capability from the effective Host catalog, including overrides. */
+export declare function getFastModels(): Promise<{
+    models: readonly string[];
+}>;
 /** Read the redacted NowCoding settings document. */
 export declare function getNowCodingSettings(): Promise<NowCodingSettingsEnvelope>;
 /** Answer of `panel.login` and `panel.two-factor`; the credential itself stays on the Host. */

@@ -23,6 +23,7 @@ import type { NowCodingResolvedOptions } from './config.ts'
 import { NOWCODING_PROVIDER_ROUTE } from './config.ts'
 import { createLiveModelLister, NowCodingModelsError } from './live-models.ts'
 import { listSelectableModels } from './models.ts'
+import { isFastCapable } from './catalog.ts'
 import {
   createPanelLogin,
   NowCodingLoginError,
@@ -497,6 +498,9 @@ export async function dispatchNowCodingMethod(
       return readModelCatalog(deps.options, deps.fetchImpl)
     case 'models.served':
       return readServedModels(deps.options)
+    case 'models.fast':
+      // Capability follows exact resolution, not advisory picker visibility.
+      return { models: deps.options.catalog.filter(isFastCapable).map(entry => entry.id) }
     case 'settings.mutate': {
       const body = requireObject(payload, 'settings.mutate')
       const ops = body.ops

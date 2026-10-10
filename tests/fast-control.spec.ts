@@ -1,9 +1,17 @@
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fastControlOf, type ModelDirectory, type ModelDirectoryState, type ModelSelection } from '../src/client/fast-control.ts'
 import { NowCodingFastToggle, type NowCodingFastToggleProps } from '../src/client/NowCodingFastToggle.tsx'
 import { apply, type ClientContext } from '../src/client/index.tsx'
+import { getFastModels, notifyNowCodingSettingsCommitted } from '../src/client/api.ts'
+
+vi.mock('../src/client/api.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/client/api.ts')>(),
+  getFastModels: vi.fn(),
+}))
+const FAST_MODELS = ['gpt-5.4']
+beforeEach(() => { vi.mocked(getFastModels).mockReset().mockResolvedValue({ models: FAST_MODELS }) })
 
 vi.mock('../src/client/NowCodingFastToggle.module.css', () => ({ default: {} }))
 vi.mock('../src/client/NowCodingDetailPage.module.css', () => ({ default: {} }))
@@ -12,7 +20,7 @@ vi.mock('../src/client/NowCodingQuotaCard.module.css', () => ({ default: {} }))
 function directoryDouble(current: ModelSelection | null = { provider: 'nowcoding', model: 'gpt-5.4', reasoningEffort: 'xhigh' }) {
   let state: ModelDirectoryState = {
     current, status: 'ready',
-    groups: [{ id: 'nowcoding', models: [{ id: 'gpt-5.4' }, { id: 'gpt-5.4-fast' }] }],
+    groups: [{ id: 'nowcoding', models: [{ id: 'gpt-5.4' }] }],
   }
   const listeners = new Set<() => void>()
   const update = (patch: Partial<ModelDirectoryState>) => {
@@ -27,17 +35,17 @@ function directoryDouble(current: ModelSelection | null = { provider: 'nowcoding
   return { directory, select, update }
 }
 
-function mount(directory: ModelDirectory, overrides: Partial<NowCodingFastToggleProps> = {}) {
+async function mount(directory: ModelDirectory, overrides: Partial<NowCodingFastToggleProps> = {}) {
   let view!: ReactTestRenderer
   const props = { directory, available: true, input: { phase: 'plain' }, session: { running: false }, ...overrides }
-  act(() => { view = create(createElement(NowCodingFastToggle, props)) })
+  await act(async () => { view = create(createElement(NowCodingFastToggle, props)) })
   return { view, props, button: () => view.root.findByType('button') }
 }
 
 describe('session fast control', () => {
   it('switches both ways, preserves reasoning, and follows host selection changes', async () => {
     const { directory, select, update } = directoryDouble()
-    const { view, button } = mount(directory)
+    const { view, button } = await mount(directory)
     expect(button().props['aria-pressed']).toBe(false)
     await act(async () => { button().props.onClick() })
     expect(select).toHaveBeenLastCalledWith({ provider: 'nowcoding', model: 'gpt-5.4-fast', reasoningEffort: 'xhigh' })
@@ -49,30 +57,83 @@ describe('session fast control', () => {
     act(() => { view.unmount() })
   })
 
-  it('does not offer fast for other providers, unsupported, unknown or unloaded models', () => {
+  it('does not offer fast for other providers, unsupported, unknown or unloaded models', async () => {
     for (const current of [null, { provider: 'openai-codex', model: 'gpt-5.4' }, { provider: 'nowcoding', model: 'claude-sonnet-5' }, { provider: 'nowcoding', model: 'unknown' }]) {
       const { directory } = directoryDouble(current)
-      expect(fastControlOf(directory.store.getSnapshot())).toBeUndefined()
-      const { view } = mount(directory)
+      expect(fastControlOf(directory.store.getSnapshot(), FAST_MODELS)).toBeUndefined()
+      const { view } = await mount(directory)
       expect(view.toJSON()).toBeNull()
       act(() => { view.unmount() })
     }
   })
 
-  it('uses advertised aliases rather than a client copy of fast capability', () => {
+  it('uses Host capability without fast picker rows or a client catalog', () => {
     const { directory, update } = directoryDouble({ provider: 'nowcoding', model: 'custom' })
-    expect(fastControlOf(directory.store.getSnapshot())).toBeUndefined()
-    update({ groups: [{ id: 'nowcoding', models: [{ id: 'custom-fast' }] }] })
-    expect(fastControlOf(directory.store.getSnapshot())?.selection.model).toBe('custom-fast')
-    update({ current: { provider: 'nowcoding', model: 'custom-fast' }, groups: [] })
-    expect(fastControlOf(directory.store.getSnapshot())?.selection.model).toBe('custom')
+    expect(fastControlOf(directory.store.getSnapshot(), [])).toBeUndefined()
+    update({ groups: [] })
+    expect(fastControlOf(directory.store.getSnapshot(), ['custom'])?.selection.model).toBe('custom-fast')
+    update({ current: { provider: 'nowcoding', model: 'custom-fast' } })
+    expect(fastControlOf(directory.store.getSnapshot(), [])?.selection.model).toBe('custom')
+  })
+
+  it('updates visibility when the selected model or Host capability changes', async () => {
+    const { directory, update } = directoryDouble()
+    const { view, button } = await mount(directory)
+    expect(button().props['aria-pressed']).toBe(false)
+    act(() => { update({ current: { provider: 'nowcoding', model: 'unknown' } }) })
+    expect(view.toJSON()).toBeNull()
+    act(() => { update({ current: { provider: 'nowcoding', model: 'gpt-5.4' } }) })
+    expect(button().props['aria-pressed']).toBe(false)
+    vi.mocked(getFastModels).mockResolvedValueOnce({ models: [] })
+    await act(async () => { notifyNowCodingSettingsCommitted() })
+    expect(view.toJSON()).toBeNull()
+    act(() => { view.unmount() })
+  })
+
+  it('loads an idle directory on mount, without needing the picker to open', async () => {
+    const { directory, update } = directoryDouble(null)
+    update({ status: 'idle' })
+    vi.mocked(directory.load).mockImplementation(async () => {
+      update({ current: { provider: 'nowcoding', model: 'gpt-5.4' }, status: 'ready' })
+    })
+    const { view, button } = await mount(directory)
+    expect(directory.load).toHaveBeenCalledOnce()
+    expect(button().props['aria-pressed']).toBe(false)
+    act(() => { view.unmount() })
+  })
+
+  it('reads current Host hook props without requiring legacy owner snapshots', async () => {
+    const { directory, select } = directoryDouble()
+    let running = false
+    const { view, props, button } = await mount(directory, {
+      input: undefined, session: undefined,
+      useInput: selector => selector({ phase: 'plain' }),
+      useSession: selector => selector({ running }),
+    })
+    expect(button().props.disabled).toBe(false)
+    await act(async () => { button().props.onClick() })
+    expect(select).toHaveBeenCalledOnce()
+    running = true
+    act(() => { view.update(createElement(NowCodingFastToggle, props)) })
+    expect(button().props.disabled).toBe(true)
+    act(() => { view.unmount() })
+  })
+
+  it('reports returned Host failures as well as thrown failures', async () => {
+    const { directory } = directoryDouble()
+    directory.select = vi.fn(async () => ({ ok: false as const, error: { code: 'OFFLINE', message: 'offline' } }))
+    const { view, button } = await mount(directory)
+    await act(async () => { button().props.onClick() })
+    expect(button().props['aria-pressed']).toBe(false)
+    expect(view.root.findByProps({ role: 'alert' }).children.join('')).toContain('OFFLINE')
+    act(() => { view.unmount() })
   })
 
   it('hides addressed child controls and locks during running/submitting/selecting', async () => {
     const { directory, select, update } = directoryDouble()
-    const { view, props, button } = mount(directory, { available: false })
+    const { view, props, button } = await mount(directory, { available: false })
     expect(view.toJSON()).toBeNull()
-    act(() => { view.update(createElement(NowCodingFastToggle, { ...props, available: true, session: { running: true } })) })
+    await act(async () => { view.update(createElement(NowCodingFastToggle, { ...props, available: true, session: { running: true } })) })
     expect(button().props.disabled).toBe(true)
     await act(async () => { button().props.onClick() })
     expect(select).not.toHaveBeenCalled()
@@ -86,7 +147,7 @@ describe('session fast control', () => {
   it('keeps the host-confirmed mode on rejection and allows retry', async () => {
     const { directory, select } = directoryDouble()
     select.mockRejectedValueOnce(new Error('offline'))
-    const { view, button } = mount(directory)
+    const { view, button } = await mount(directory)
     await act(async () => { button().props.onClick() })
     expect(button().props['aria-pressed']).toBe(false)
     expect(view.root.findByProps({ role: 'alert' }).children.join('')).toContain('offline')
@@ -101,7 +162,7 @@ describe('session fast control', () => {
     const second = directoryDouble()
     let resolve!: () => void
     first.select.mockImplementationOnce(() => new Promise<void>(done => { resolve = done }))
-    const { view, button } = mount(first.directory)
+    const { view, button } = await mount(first.directory)
     act(() => { button().props.onClick(); button().props.onClick() })
     expect(first.select).toHaveBeenCalledTimes(1)
     expect(button().props.disabled).toBe(true)

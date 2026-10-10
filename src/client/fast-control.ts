@@ -19,11 +19,11 @@ export interface ModelDirectory {
     getSnapshot(): ModelDirectoryState
   }
   load(): Promise<unknown>
-  select(selection: ModelSelection): Promise<void>
+  select(selection: ModelSelection): Promise<void | { ok: true; value?: unknown } | { ok: false; error: { code: string; message: string } }>
 }
 
-/** Use the host's advertised alias pair, so overrides/allowlists stay authoritative. */
-export function fastControlOf(state: ModelDirectoryState): {
+/** Judge the selected model using Host capability, independently of picker rows. */
+export function fastControlOf(state: ModelDirectoryState, fastModels: readonly string[]): {
   active: boolean
   selection: ModelSelection
 } | undefined {
@@ -31,9 +31,8 @@ export function fastControlOf(state: ModelDirectoryState): {
   if (current?.provider !== 'nowcoding') return undefined
   const active = isFastAlias(current.model)
   const model = active ? wireModelId(current.model) : fastModelId(current.model)
-  const group = state.groups.find(group => group.id === current.provider)
-  // A previously selected alias must always be able to return to standard,
-  // even if a settings edit has removed that pair from the advisory listing.
-  if (!active && !group?.models.some(entry => entry.id === model)) return undefined
+  // A previously selected alias can always return to standard, even after
+  // capability/visibility changes. No duplicate fast row is required.
+  if (!active && !fastModels.includes(current.model)) return undefined
   return { active, selection: { ...current, model } }
 }

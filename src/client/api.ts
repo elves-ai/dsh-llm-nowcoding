@@ -198,6 +198,11 @@ export function getServedModels(): Promise<{ models: readonly NowCodingServedMod
   return post<{ models: readonly NowCodingServedModelView[] }>('models.served')
 }
 
+/** Read fast capability from the effective Host catalog, including overrides. */
+export function getFastModels(): Promise<{ models: readonly string[] }> {
+  return post<{ models: readonly string[] }>('models.fast')
+}
+
 /** Read the redacted NowCoding settings document. */
 export function getNowCodingSettings(): Promise<NowCodingSettingsEnvelope> {
   return post<NowCodingSettingsEnvelope>('settings.get')

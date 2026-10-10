@@ -206,7 +206,7 @@ describe('models.list', () => {
     ...OPTIONS,
     apiKey: 'sk-test',
     catalog: [
-      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', contextWindow: 400_000, maxTokens: 128_000, input: ['text'] },
+      { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', contextWindow: 400_000, maxTokens: 128_000, input: ['text'], fast: true },
       { id: 'gpt-6-astra', name: 'GPT-6 Astra', contextWindow: 400_000, maxTokens: 128_000, input: ['text'] },
     ],
   }
@@ -259,6 +259,15 @@ describe('models.list', () => {
         { id: 'gpt-6-astra', name: 'GPT-6 Astra' },
       ],
     })
+  })
+
+  it('reports effective fast capability independently of picker visibility without network I/O', async () => {
+    const { deps, sent } = modelDeps(() => { throw new Error('unexpected network') })
+    deps.options = { ...deps.options, visibleModels: ['gpt-6-astra'] }
+    await expect(dispatchNowCodingMethod(deps, 'models.fast', {})).resolves.toEqual({ models: ['gpt-5.6-sol'] })
+    deps.options = { ...deps.options, catalog: deps.options.catalog.map(entry => ({ ...entry, fast: false })) }
+    await expect(dispatchNowCodingMethod(deps, 'models.fast', {})).resolves.toEqual({ models: [] })
+    expect(sent).toHaveLength(0)
   })
 
   it('stores a visibleModels allowlist through the settings seam', async () => {

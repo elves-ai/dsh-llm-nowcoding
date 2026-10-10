@@ -19,10 +19,19 @@ export interface ModelDirectory {
         getSnapshot(): ModelDirectoryState;
     };
     load(): Promise<unknown>;
-    select(selection: ModelSelection): Promise<void>;
+    select(selection: ModelSelection): Promise<void | {
+        ok: true;
+        value?: unknown;
+    } | {
+        ok: false;
+        error: {
+            code: string;
+            message: string;
+        };
+    }>;
 }
-/** Use the host's advertised alias pair, so overrides/allowlists stay authoritative. */
-export declare function fastControlOf(state: ModelDirectoryState): {
+/** Judge the selected model using Host capability, independently of picker rows. */
+export declare function fastControlOf(state: ModelDirectoryState, fastModels: readonly string[]): {
     active: boolean;
     selection: ModelSelection;
 } | undefined;

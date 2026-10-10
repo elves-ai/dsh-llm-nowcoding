@@ -11,9 +11,9 @@
  * Model ids are grouped by the gateway's own multipliers rather than by vendor
  * tier, because a group multiplier is what a request actually costs.
  *
- * Fast-capable entries expand into a second selector entry whose id carries
- * the {@link FAST_MODEL_SUFFIX}; picking it sends the same wire model with a
- * fast `service_tier`. The alias never reaches the provider.
+ * Fast-capable entries support an internal selection id carrying
+ * {@link FAST_MODEL_SUFFIX}; the lightning control selects it without adding a
+ * duplicate picker row. The alias never reaches the provider.
  *
  * @module @elves-ai/dsh-llm-nowcoding/catalog
  */
@@ -70,7 +70,7 @@ export declare function isFastAlias(id: string): boolean;
 /**
  * The fast-mode alias id for a fast-capable model.
  * @param id - the wire model id.
- * @returns the alias the model picker offers beside the plain entry.
+ * @returns the internal alias selected by the lightning control.
  */
 export declare function fastModelId(id: string): string;
 /**
@@ -93,9 +93,8 @@ export declare function catalogEntry(catalog: readonly NowCodingCatalogModel[], 
  */
 export declare function isFastCapable(entry: NowCodingCatalogModel | undefined): boolean;
 /**
- * Expand a catalog into the entries a model picker offers: every fast-capable
- * model contributes its plain entry plus its fast alias.
+ * Project a catalog into base-model picker rows; fast aliases are internal only.
  * @param catalog - the effective catalog.
- * @returns selector entries in catalog order, each fast alias after its base.
+ * @returns base entries in catalog order, without fast duplicates.
  */
 export declare function selectorEntries(catalog: readonly NowCodingCatalogModel[]): readonly NowCodingCatalogModel[];

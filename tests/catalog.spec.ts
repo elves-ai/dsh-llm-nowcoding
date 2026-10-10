@@ -31,11 +31,12 @@ describe('fast model aliases', () => {
 })
 
 describe('selector expansion', () => {
-  it('offers a fast alias directly after every fast-capable model', () => {
+  it('offers only base rows even for fast-capable models', () => {
     const entries = selectorEntries(NOWCODING_BUILTIN_CATALOG)
     const base = entries.findIndex(entry => entry.id === 'gpt-5.6-sol')
     expect(base).toBeGreaterThanOrEqual(0)
-    expect(entries[base + 1]?.id).toBe('gpt-5.6-sol-fast')
+    expect(entries.some(entry => isFastAlias(entry.id))).toBe(false)
+    expect(entries).toEqual(NOWCODING_BUILTIN_CATALOG)
   })
 
   it('offers no alias for a model without a fast tier', () => {
@@ -45,10 +46,10 @@ describe('selector expansion', () => {
     expect(ids).not.toContain('claude-sonnet-5' + FAST_MODEL_SUFFIX)
   })
 
-  it('keeps every declared fast model aliasable and every other model plain', () => {
+  it('lists each model once regardless of fast capability', () => {
     for (const entry of NOWCODING_BUILTIN_CATALOG) {
       const expanded = selectorEntries([entry]).map(candidate => candidate.id)
-      expect(expanded).toHaveLength(entry.fast === true ? 2 : 1)
+      expect(expanded).toEqual([entry.id])
     }
   })
 })

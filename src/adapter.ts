@@ -86,7 +86,7 @@ export class NowCodingAdapter extends LlmAdapter {
   }
 
   /**
-   * List the model picker's entries, fast aliases included, narrowed to the
+   * List base-model picker entries without duplicate fast rows, narrowed to the
    * configured `visibleModels` allowlist when one is set.
    * @param provider - one provider route owned by this adapter.
    * @returns one entry per selectable row, in catalog order.

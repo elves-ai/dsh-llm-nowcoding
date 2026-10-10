@@ -62,12 +62,12 @@ export function resolveModelInfo(input: {
 }
 
 /**
- * List the entries a model picker offers, fast aliases included.
+ * List base models only; fast aliases remain resolvable for the lightning control.
  *
  * `visibleModels` narrows the listing without touching the catalog: an empty
- * or absent list shows everything, a non-empty one keeps the entries whose id
- * — or whose base model's id, so a fast alias survives its base — the list
- * names. {@link resolveModelInfo} is deliberately not narrowed: the route
+ * or absent list shows everything. Legacy fast ids in the allowlist retain
+ * their base row without exposing a duplicate fast row.
+ * {@link resolveModelInfo} is deliberately not narrowed: the route
  * serves any id the gateway accepts, and hiding one from the picker must not
  * strip the metadata a direct request for it still deserves.
  *
@@ -83,8 +83,8 @@ export function listSelectableModels(
 ): readonly LlmModelInfo[] {
   const entries = selectorEntries(catalog)
   if (visibleModels === undefined || visibleModels.length === 0) return project(provider, entries)
-  const allow = new Set(visibleModels)
-  return project(provider, entries.filter(entry => allow.has(entry.id) || allow.has(wireModelId(entry.id))))
+  const allow = new Set(visibleModels.map(wireModelId))
+  return project(provider, entries.filter(entry => allow.has(entry.id)))
 }
 
 /** Project selector entries into the seam's picker shape. */
