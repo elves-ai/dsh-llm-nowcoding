@@ -87,6 +87,10 @@ export type NowCodingSettingsOp = {
 } | {
     op: 'unset';
     path: [string];
+} | {
+    op: 'set';
+    path: ['modelOverrides', string, 'contextWindow' | 'maxTokens' | 'fast'] | ['models', string, 'contextWindow' | 'maxTokens' | 'fast'];
+    value: number | boolean;
 };
 /** Wire error carrying the route's stable machine code. */
 export declare class NowCodingApiError extends Error {
@@ -107,6 +111,12 @@ export interface NowCodingRemoteModelView {
     ownedBy?: string;
     /** Whether the served catalog describes the id, so the picker can list it once kept. */
     known: boolean;
+    /** Effective Host metadata, absent for a model outside the catalog. */
+    configuration?: {
+        contextWindow: number;
+        maxTokens: number;
+        fast: boolean;
+    };
 }
 /** Answer of `models.list`. */
 export interface NowCodingModelListView {

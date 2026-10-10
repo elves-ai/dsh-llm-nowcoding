@@ -14,7 +14,7 @@ The one rule that matters most: **the active dsh profile owns every `@deepseek-a
 |---|---|
 | `src/index.ts` | Plugin entry. Registers the adapter, the configurable-provider entry, and the fenced route. Holds no logic of its own. |
 | `src/config.ts` | Config schema, catalog resolution, and the immutable per-operation snapshot. Every field is `volatile`. |
-| `src/catalog.ts` | The shipped model catalog, the internal `-fast` alias grammar, and base-model picker projection. Data, not policy. |
+| `src/catalog.ts` | The shipped model catalog, the internal `-fast` alias grammar, and base/fast picker projection. Data, not policy. |
 | `src/fast.ts` | The one decision about `service_tier`, and what happens when the model has no fast tier. |
 | `src/models.ts` | Exact-route metadata behind `resolveModel` and `listModels`. No I/O. |
 | `src/live-models.ts` | The live model-list reader (`GET {base}/v1/models`, key-scoped) and its normalization, with an injected transport. |
@@ -93,7 +93,7 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 
 `visibleModels` narrows what the picker offers, and two properties are load-bearing:
 
-- **It narrows the listing, never the resolution.** `listSelectableModels` filters by allow-set (empty or absent shows everything; only base rows are listed, and legacy fast allowlist ids retain their base row), while `resolveModel` answers any id the gateway accepts with full metadata. Hiding a model from the picker must not strip what a direct request for it deserves.
+- **It narrows the listing, never the resolution.** `listSelectableModels` filters by allow-set (empty or absent shows everything; base rows and fast-capable aliases are listed, and allowing either id retains both rows), while `resolveModel` answers any id the gateway accepts with full metadata. Hiding a model from the picker must not strip what a direct adapter request for it deserves. The Host GUI nevertheless requires exact membership in `listModels()` at selection and prompt admission, so fast aliases must be advertised; `resolveModel` alone does not admit them.
 - **The picker's rows come from the key-scoped listing, not the public pricing page.** The route's `models.list` reads `GET {base}/v1/models` with the model key through `live-models.ts`, so every id it returns is one the key can serve; the answer annotates each id with whether the served catalog knows it. A checked-but-unknown id is stored faithfully and offered for cleanup — it must not be silently dropped, and it must not be presented as picker-visible either.
 
 ### Quota semantics
@@ -122,7 +122,7 @@ The 0.1.7 Harness rewrote the settings seam. There is no `installSettingsSection
 
 `/nowcoding/api` is the only way the browser half reaches the Host. It is gated by the same browser-trust policy as the `/api` gateway: a loopback or configured trusted Host header, no `sec-fetch-site: cross-site`, and an `Origin` that matches when present. `isTrustedApiRequest` is copied from the sibling `dsh-web-search-firecrawl` plugin deliberately; keep the two in step and keep its tests if you add any.
 
-The success envelope is `{ ok: true, value }` and the failure envelope is `{ ok: false, error: { code, message } }`, owned jointly with `src/client/api.ts`. Changing one without the other breaks the card silently. The methods are `settings.get`, `settings.mutate`, `quota.get`, `models.list` (the key-scoped listing for the picker's allowlist), `models.served` (exactly what the conversation picker lists with the current configuration — the page holds it against the app's own menu), `models.fast` (fast-capable base ids from the effective catalog, independent of picker visibility), `panel.login`, and `panel.two-factor`; `models.list` rides the same error vocabulary as `quota.get`, so `writeError` maps both identically.
+The success envelope is `{ ok: true, value }` and the failure envelope is `{ ok: false, error: { code, message } }`, owned jointly with `src/client/api.ts`. Changing one without the other breaks the card silently. `settings.mutate` also permits capability leaf writes at `modelOverrides/<id>/{contextWindow,maxTokens,fast}` or an existing `models/<index>/{contextWindow,maxTokens,fast}` entry (string index); it never replaces the whole catalog or override dictionary from the page, and validates positive integer token limits plus combined capacity. The methods are `settings.get`, `settings.mutate`, `quota.get`, `models.list` (the key-scoped listing for the picker's allowlist), `models.served` (exactly what the conversation picker lists with the current configuration — the page holds it against the app's own menu), `models.fast` (fast-capable base ids from the effective catalog, independent of picker visibility), `panel.login`, and `panel.two-factor`; `models.list` rides the same error vocabulary as `quota.get`, so `writeError` maps both identically.
 
 ### The browser half
 

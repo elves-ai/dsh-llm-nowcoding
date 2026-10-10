@@ -46,6 +46,7 @@ import {
   type NowCodingSettingsOp,
 } from './api.ts'
 import css from './NowCodingDetailPage.module.css'
+import { modelConfigDraftOf, modelConfigOps, type ModelConfigDraft } from './model-config.ts'
 
 /** Local drafts for the editable controls. */
 interface Drafts {
@@ -168,6 +169,7 @@ export function NowCodingDetailPage(): ReactElement | null {
   const [modelListLoading, setModelListLoading] = useState(false)
   const [modelListError, setModelListError] = useState<string | null>(null)
   const [modelQuery, setModelQuery] = useState('')
+  const [modelDrafts, setModelDrafts] = useState<Record<string, ModelConfigDraft>>({})
   const [served, setServed] = useState<readonly { id: string; name: string }[] | null>(null)
 
   const refreshQuota = useCallback(async (): Promise<void> => {
@@ -216,6 +218,8 @@ export function NowCodingDetailPage(): ReactElement | null {
       const next = await mutateNowCodingSettings(ops, envelope.revision)
       setEnvelope(next)
       setDrafts(draftsOf(next))
+      setModelDrafts({})
+      if (modelList !== null) void fetchModels()
       setNotice('已保存，新配置立即用于下一次请求。')
       void refreshQuota()
       void refreshServed()
@@ -227,6 +231,8 @@ export function NowCodingDetailPage(): ReactElement | null {
         void getNowCodingSettings().then((next) => {
           setEnvelope(next)
           setDrafts(draftsOf(next))
+          setModelDrafts({})
+          if (modelList !== null) void fetchModels()
         }).catch(() => undefined)
       }
     } finally {
@@ -291,7 +297,13 @@ export function NowCodingDetailPage(): ReactElement | null {
   const save = (): void => {
     const baseURL = drafts.baseURL.trim()
     const apiKey = drafts.apiKey.trim()
-    const ops: NowCodingSettingsOp[] = []
+    let ops: NowCodingSettingsOp[]
+    try {
+      ops = modelConfigOps(modelDrafts, modelList ?? [], envelope!)
+    } catch (caught) {
+      setError(messageOf(caught))
+      return
+    }
     if (apiKey !== '') ops.push({ op: 'set', path: ['apiKey'], value: apiKey })
     if (baseURL === '') ops.push({ op: 'unset', path: ['baseURL'] })
     else ops.push({ op: 'set', path: ['baseURL'], value: baseURL })
@@ -474,6 +486,7 @@ export function NowCodingDetailPage(): ReactElement | null {
       </div>
 
       <div className={css.card}>
+        <p className={css.cardIntro}>模型配置：拉取列表后，可修改各模型的上下文窗口（输入与输出合计）、最大输出 tokens 和是否支持 fast。勾选支持 fast 仅声明能力，不会开启当前会话的快速模式，也不能替站方开启透传。修改后点击底部「保存」。</p>
         <p className={css.cardIntro}>模型白名单：勾选要保留的模型，模型选择器就只列出这些；一个都不勾选时显示全部目录模型。列表拉取自站方按当前 Key 返回的可用模型，保存后生效。</p>
 
         {served !== null && served.length > 0 && (
@@ -530,23 +543,52 @@ export function NowCodingDetailPage(): ReactElement | null {
                 onChange={event => { setModelQuery(event.currentTarget.value) }}
               />
               <div className={css.modelList}>
-                {filteredModels.map(model => (
-                  <label className={css.modelRow} key={model.id}>
-                    <input
-                      type="checkbox"
-                      className={css.checkbox}
-                      checked={drafts.visibleModels.includes(model.id)}
-                      onChange={() => { toggleModel(model.id) }}
-                    />
-                    <span className={css.modelId}>{model.id}</span>
-                    {model.ownedBy !== undefined && <span className={css.modelOwner}>{model.ownedBy}</span>}
-                    {!model.known && <span className={css.badgeOff}>目录外</span>}
-                  </label>
-                ))}
+                {filteredModels.map(model => {
+                  const draft = modelDrafts[model.id] ?? modelConfigDraftOf(model)
+                  const configuredModels = (envelope.value as { models?: { id: string }[] })?.models
+                  const inCatalog = !Array.isArray(configuredModels) || configuredModels.length === 0 || configuredModels.some(entry => entry.id === model.id)
+                  const editable = !disabled && !modelListLoading && inCatalog
+                  const edit = (patch: Partial<ModelConfigDraft>): void => {
+                    setModelDrafts(previous => ({ ...previous, [model.id]: { ...(previous[model.id] ?? draft), ...patch } }))
+                  }
+                    return <div key={model.id} className={css.modelItem}>
+                    <label className={css.modelRow}>
+                      <input
+                        type="checkbox"
+                        className={css.checkbox}
+                        disabled={disabled}
+                        aria-label={`保留 ${model.id}`}
+                        checked={drafts.visibleModels.includes(model.id)}
+                        onChange={() => { toggleModel(model.id) }}
+                      />
+                      <span className={css.modelId}>{model.id}</span>
+                      {model.ownedBy !== undefined && <span className={css.modelOwner}>{model.ownedBy}</span>}
+                      {!model.known && <span className={css.badgeOff}>目录外</span>}
+                    </label>
+                    <div className={css.modelConfig}>
+                      <label className={css.modelField}>
+                        <span>上下文窗口（tokens）</span>
+                        <input className={css.input} type="number" min="1" step="1" aria-label={model.id + ' 上下文窗口'} value={draft.contextWindow} disabled={!editable}
+                          placeholder="输入与输出合计" onChange={event => { edit({ contextWindow: event.currentTarget.value }) }} />
+                      </label>
+                      <label className={css.modelField}>
+                        <span>最大输出（tokens）</span>
+                        <input className={css.input} type="number" min="1" step="1" aria-label={model.id + ' 最大输出'} value={draft.maxTokens} disabled={!editable}
+                          placeholder="最大输出 tokens" onChange={event => { edit({ maxTokens: event.currentTarget.value }) }} />
+                      </label>
+                      <label className={css.modelFast}>
+                        <input type="checkbox" className={css.checkbox} aria-label={model.id + ' 支持 fast'} checked={draft.fast} disabled={!editable}
+                          onChange={event => { edit({ fast: event.currentTarget.checked }) }} />
+                        支持 fast
+                      </label>
+                    </div>
+                    {!inCatalog && <p className={css.hint}>此模型不在自定义 models 目录中，需先在 profile 中添加。</p>}
+                  </div>
+                })}
                 {filteredModels.length === 0 && <p className={css.hint}>没有匹配的模型。</p>}
               </div>
               <p className={css.hint}>
-                站方为当前 Key 返回 {modelList.length} 个模型；标注「目录外」的模型可以勾选保存，但插件目录收录它之前不会出现在模型选择器里。
+                站方为当前 Key 返回 {modelList.length} 个模型；「目录外」模型填写两个 token 数值并保存后即可加入覆盖目录（默认仅文本输入）。已有自定义 models 目录时，仅能编辑目录中已存在的模型。
               </p>
             </div>
           </div>
@@ -681,8 +723,8 @@ export function NowCodingDetailPage(): ReactElement | null {
       {notice !== null && <p className={css.notice} role="status">{notice}</p>}
 
       <div className={css.actions}>
-        <button type="button" className={css.button} disabled={disabled} onClick={() => { void getNowCodingSettings().then((next) => { setEnvelope(next); setDrafts(draftsOf(next)); setNotice('已重置为当前保存的配置。') }).catch((caught: unknown) => { setError(messageOf(caught)) }) }}>重置</button>
-        <button type="button" className={css.buttonPrimary} disabled={disabled} onClick={save}>
+        <button type="button" className={css.button} disabled={disabled} onClick={() => { void getNowCodingSettings().then((next) => { setEnvelope(next); setDrafts(draftsOf(next)); setModelDrafts({}); if (modelList !== null) void fetchModels(); setNotice('已重置为当前保存的配置。') }).catch((caught: unknown) => { setError(messageOf(caught)) }) }}>重置</button>
+        <button type="button" className={css.buttonPrimary} disabled={disabled || modelListLoading} onClick={save}>
           {saving ? '保存中…' : '保存'}
         </button>
       </div>

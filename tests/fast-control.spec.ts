@@ -1,4 +1,6 @@
 import { createElement } from 'react'
+import { NOWCODING_BUILTIN_CATALOG } from '../src/catalog.ts'
+import { listSelectableModels } from '../src/models.ts'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fastControlOf, type ModelDirectory, type ModelDirectoryState, type ModelSelection } from '../src/client/fast-control.ts'
@@ -54,6 +56,29 @@ describe('session fast control', () => {
     expect(select).toHaveBeenLastCalledWith({ provider: 'nowcoding', model: 'gpt-5.4', reasoningEffort: 'xhigh' })
     act(() => { update({ current: { provider: 'nowcoding', model: 'gpt-5.4-fast' } }) })
     expect(button().props['aria-pressed']).toBe(true)
+    act(() => { view.unmount() })
+  })
+
+  it('switches both ways through the Host exact advertised-id availability guard', async () => {
+    const { directory, update } = directoryDouble()
+    const rows = listSelectableModels('nowcoding', NOWCODING_BUILTIN_CATALOG, ['gpt-5.4'])
+    directory.select = vi.fn(async selection => {
+      // The Host checks listModels membership before selecting AND before sending.
+      if (!rows.some(row => row.id === selection.model)) return {
+        ok: false as const,
+        error: { code: 'session/model-unavailable', message: 'Select an available model before sending a message.' },
+      }
+      update({ current: selection })
+      return { ok: true as const }
+    })
+    const { view, button } = await mount(directory)
+    await act(async () => { button().props.onClick() })
+    expect(button().props['aria-pressed']).toBe(true)
+    expect(directory.store.getSnapshot().current).toEqual({ provider: 'nowcoding', model: 'gpt-5.4-fast', reasoningEffort: 'xhigh' })
+    expect(view.root.findAllByProps({ role: 'alert' })).toHaveLength(0)
+    await act(async () => { button().props.onClick() })
+    expect(button().props['aria-pressed']).toBe(false)
+    expect(directory.store.getSnapshot().current?.reasoningEffort).toBe('xhigh')
     act(() => { view.unmount() })
   })
 

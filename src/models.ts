@@ -62,11 +62,12 @@ export function resolveModelInfo(input: {
 }
 
 /**
- * List base models only; fast aliases remain resolvable for the lightning control.
+ * List base models and fast aliases for the Host exact-id availability check.
  *
  * `visibleModels` narrows the listing without touching the catalog: an empty
  * or absent list shows everything. Legacy fast ids in the allowlist retain
- * their base row without exposing a duplicate fast row.
+ * their base row and its fast alias when fast-capable. The Host validates GUI
+ * selection and prompt admission against this listing, not `resolveModel`.
  * {@link resolveModelInfo} is deliberately not narrowed: the route
  * serves any id the gateway accepts, and hiding one from the picker must not
  * strip the metadata a direct request for it still deserves.
@@ -84,7 +85,7 @@ export function listSelectableModels(
   const entries = selectorEntries(catalog)
   if (visibleModels === undefined || visibleModels.length === 0) return project(provider, entries)
   const allow = new Set(visibleModels.map(wireModelId))
-  return project(provider, entries.filter(entry => allow.has(entry.id)))
+  return project(provider, entries.filter(entry => allow.has(wireModelId(entry.id))))
 }
 
 /** Project selector entries into the seam's picker shape. */

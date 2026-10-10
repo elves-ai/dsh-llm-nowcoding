@@ -32,7 +32,7 @@ export function fastControlOf(state: ModelDirectoryState, fastModels: readonly s
   const active = isFastAlias(current.model)
   const model = active ? wireModelId(current.model) : fastModelId(current.model)
   // A previously selected alias can always return to standard, even after
-  // capability/visibility changes. No duplicate fast row is required.
+  // capability changes, provided the Host still advertises the base id.
   if (!active && !fastModels.includes(current.model)) return undefined
   return { active, selection: { ...current, model } }
 }

@@ -98,6 +98,11 @@ export interface NowCodingRemoteModelView {
     ownedBy?: string;
     /** Whether the served catalog describes the id, so the picker can list it once kept. */
     known: boolean;
+    configuration?: {
+        contextWindow: number;
+        maxTokens: number;
+        fast: boolean;
+    };
 }
 /** Model-list payload returned by `models.list`. */
 export interface NowCodingModelListView {

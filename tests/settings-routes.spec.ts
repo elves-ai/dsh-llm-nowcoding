@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SettingsDescriptor, SettingsPathOp } from '@deepseek-ai/dsh-settings'
-import type { NowCodingResolvedOptions } from '../src/config.ts'
+import { effectiveCatalog, type NowCodingResolvedOptions } from '../src/config.ts'
+import { resolveModelInfo, listSelectableModels } from '../src/models.ts'
 import { createPanelLogin } from '../src/panel-login.ts'
 import {
   dispatchNowCodingMethod,
@@ -65,11 +66,13 @@ function settingsDouble(): { face: NowCodingSettingsFace; writes: Write[]; value
     }],
     mutate: async (_ns, ops, expectedRevision) => {
       writes.push({ ops, expectedRevision })
-      const next = { ...value }
+      const next = structuredClone(value)
       for (const op of ops) {
-        const field = op.path[0] ?? ''
-        if (op.op === 'set') next[field] = op.value
-        else delete next[field]
+        let parent: any = next
+        for (const key of op.path.slice(0, -1)) parent = parent[key] ??= {}
+        const field = op.path.at(-1)!
+        if (op.op === 'set') parent[field] = op.value
+        else delete parent[field]
       }
       value = next
       revision += 1
@@ -200,6 +203,62 @@ describe('the fenced route dispatch', () => {
   })
 })
 
+describe('per-model capability writes', () => {
+  it('persists exact model-id leaves without replacing unrelated metadata and applies them to resolution', async () => {
+    const { deps, settings } = depsOf(tokenConsole)
+    const id = 'gpt-6.1-sol'
+    await settings.face.mutate(NS, [{ op: 'set', path: ['modelOverrides'], value: { [id]: { input: ['text', 'image'], description: 'keep' }, other: { fast: false } } }])
+    await dispatchNowCodingMethod(deps, 'settings.mutate', { expectedRevision: 4, ops: [
+      { op: 'set', path: ['modelOverrides', id, 'contextWindow'], value: 200000 },
+      { op: 'set', path: ['modelOverrides', id, 'maxTokens'], value: 8192 },
+      { op: 'set', path: ['modelOverrides', id, 'fast'], value: false },
+    ] })
+    expect(settings.value()).toMatchObject({ modelOverrides: { [id]: { contextWindow: 200000, maxTokens: 8192, fast: false, input: ['text', 'image'], description: 'keep' }, other: { fast: false } } })
+    expect(settings.writes.at(-1)?.expectedRevision).toBe(4)
+    const catalog = effectiveCatalog(settings.value())
+    expect(resolveModelInfo({ provider: 'nowcoding', model: id, catalog })).toMatchObject({ context: { contextWindow: 200000 }, defaultMaxTokens: 8192, inputModalities: ['text', 'image'] })
+    expect(listSelectableModels('nowcoding', catalog).some(model => model.id === id + '-fast')).toBe(false)
+  })
+
+  it('edits explicit models by string array index, preserving the rest of the entry', async () => {
+    const { deps, settings } = depsOf(tokenConsole)
+    await settings.face.mutate(NS, [{ op: 'set', path: ['models'], value: [{ id: 'custom.v1', contextWindow: 4096, maxTokens: 1024, input: ['text'], description: 'keep' }] }])
+    await dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['models', '0', 'fast'], value: true }] })
+    const catalog = effectiveCatalog(settings.value())
+    expect(catalog[0]).toMatchObject({ id: 'custom.v1', description: 'keep', fast: true })
+    expect(listSelectableModels('nowcoding', catalog).map(model => model.id)).toEqual(['custom.v1', 'custom.v1-fast'])
+    await expect(dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['models', '1', 'fast'], value: true }] })).rejects.toMatchObject({ code: 'bad-request' })
+    await expect(dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['modelOverrides', 'custom.v1', 'fast'], value: true }] })).rejects.toMatchObject({ code: 'bad-request' })
+  })
+
+  it('rejects unsafe paths, metadata escalation and invalid numeric or boolean values before writing', async () => {
+    for (const [path, value] of [
+      [['modelOverrides', '__proto__', 'fast'], true], [['modelOverrides', 'constructor', 'fast'], true],
+      [['modelOverrides', 'prototype', 'fast'], true], [['modelOverrides', 'model', 'input'], ['image']],
+      [['modelOverrides', 'model', 'fast'], 'true'], [['modelOverrides', 'model', 'maxTokens'], 0],
+      [['modelOverrides', 'model', 'contextWindow'], 1.5], [['modelOverrides', 'model', 'contextWindow'], Infinity],
+      [['models', '-1', 'fast'], true], [['models', '0.5', 'fast'], true], [['models', '0', 'id'], 'changed'],
+      [['modelOverrides'], {}],
+    ]) {
+      const { deps, settings } = depsOf(tokenConsole)
+      await expect(dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path, value }] })).rejects.toMatchObject({ code: 'bad-request' })
+      expect(settings.writes).toHaveLength(0)
+    }
+  })
+
+  it('validates combined limits after all edits, regardless of order', async () => {
+    const { deps, settings } = depsOf(tokenConsole)
+    deps.options = { ...deps.options, catalog: effectiveCatalog({}) }
+    await expect(dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['modelOverrides', 'gpt-6.1-sol', 'contextWindow'], value: 100 }] })).rejects.toMatchObject({ code: 'bad-request' })
+    expect(settings.writes).toHaveLength(0)
+    await dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [
+      { op: 'set', path: ['modelOverrides', 'gpt-6.1-sol', 'contextWindow'], value: 100 },
+      { op: 'set', path: ['modelOverrides', 'gpt-6.1-sol', 'maxTokens'], value: 10 },
+    ] })
+    expect(settings.writes).toHaveLength(1)
+  })
+})
+
 describe('models.list', () => {
   /** A configured route: the key fetches the listing, the catalog decides `known`. */
   const MODEL_OPTIONS: NowCodingResolvedOptions = {
@@ -237,7 +296,7 @@ describe('models.list', () => {
     }))
     await expect(dispatchNowCodingMethod(deps, 'models.list', {})).resolves.toEqual({
       models: [
-        { id: 'gpt-5.6-sol', ownedBy: 'custom', known: true },
+        { id: 'gpt-5.6-sol', ownedBy: 'custom', known: true, configuration: { contextWindow: 400_000, maxTokens: 128_000, fast: true } },
         { id: 'brand-new-model', ownedBy: 'custom', known: false },
       ],
     })
@@ -256,6 +315,7 @@ describe('models.list', () => {
     await expect(dispatchNowCodingMethod(deps, 'models.served', {})).resolves.toEqual({
       models: [
         { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
+        { id: 'gpt-5.6-sol-fast', name: 'GPT-5.6 Sol (fast)' },
         { id: 'gpt-6-astra', name: 'GPT-6 Astra' },
       ],
     })

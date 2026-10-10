@@ -90,6 +90,7 @@ export interface NowCodingSettingsView {
 export type NowCodingSettingsOp =
   | { op: 'set'; path: [string]; value: unknown }
   | { op: 'unset'; path: [string] }
+  | { op: 'set'; path: ['modelOverrides', string, 'contextWindow' | 'maxTokens' | 'fast'] | ['models', string, 'contextWindow' | 'maxTokens' | 'fast']; value: number | boolean }
 
 /** Success envelope of the NowCoding route. */
 interface NowCodingEnvelope<T> {
@@ -163,6 +164,8 @@ export interface NowCodingRemoteModelView {
   ownedBy?: string
   /** Whether the served catalog describes the id, so the picker can list it once kept. */
   known: boolean
+  /** Effective Host metadata, absent for a model outside the catalog. */
+  configuration?: { contextWindow: number; maxTokens: number; fast: boolean }
 }
 
 /** Answer of `models.list`. */

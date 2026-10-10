@@ -128,6 +128,7 @@ export interface NowCodingRemoteModelView {
   ownedBy?: string
   /** Whether the served catalog describes the id, so the picker can list it once kept. */
   known: boolean
+  configuration?: { contextWindow: number; maxTokens: number; fast: boolean }
 }
 
 /** Model-list payload returned by `models.list`. */
@@ -268,12 +269,26 @@ function requireStringField(source: Record<string, unknown>, key: string): strin
   return value
 }
 
-/** Validate one top-level settings path op against the NowCoding schema. */
+/** Validate top-level settings and narrowly scoped per-model capability edits. */
 function validateOp(op: unknown): asserts op is SettingsPathOp {
   if (!isPlainObject(op) || op.op !== 'set' && op.op !== 'unset') {
     throw new NowCodingRouteError('bad-request', 'each op must be { op: "set" | "unset", path: [field] }')
   }
   const path = op.path
+  if (Array.isArray(path) && path.length === 3 && (path[0] === 'modelOverrides' || path[0] === 'models')) {
+    const [root, model, field] = path
+    const safeModel = root === 'models'
+      ? typeof model === 'string' && /^(0|[1-9][0-9]*)$/.test(model) && Number.isSafeInteger(Number(model))
+      : typeof model === 'string' && model.trim() !== '' && !['__proto__', 'constructor', 'prototype'].includes(model)
+    if (!safeModel || !['contextWindow', 'maxTokens', 'fast'].includes(field) || op.op !== 'set') {
+      throw new NowCodingRouteError('bad-request', 'invalid model configuration path')
+    }
+    if (field === 'fast' ? typeof op.value !== 'boolean'
+      : typeof op.value !== 'number' || !Number.isSafeInteger(op.value) || op.value < 1) {
+      throw new NowCodingRouteError('bad-request', field === 'fast' ? 'fast must be a boolean' : 'token limits must be positive safe integers')
+    }
+    return
+  }
   if (!Array.isArray(path) || path.length !== 1 || typeof path[0] !== 'string' || !ALLOWED_FIELDS.has(path[0])) {
     throw new NowCodingRouteError('bad-request', `settings field must be one of: ${NOWCODING_SETTINGS_FIELDS.join(', ')}`)
   }
@@ -393,11 +408,16 @@ async function readModelCatalog(options: NowCodingResolvedOptions, fetchImpl: ty
     ...fetchImpl === undefined ? {} : { fetchImpl },
   })
   const models = await lister.list()
-  const known = new Set(options.catalog.map(entry => entry.id))
+  const known = new Map(options.catalog.map(entry => [entry.id, entry]))
   return {
     models: models.map(model => ({
       id: model.id,
       known: known.has(model.id),
+      ...known.has(model.id) ? { configuration: {
+        contextWindow: known.get(model.id)!.contextWindow,
+        maxTokens: known.get(model.id)!.maxTokens,
+        fast: isFastCapable(known.get(model.id)),
+      } } : {},
       ...model.ownedBy === undefined ? {} : { ownedBy: model.ownedBy },
     })),
   }
@@ -508,6 +528,27 @@ export async function dispatchNowCodingMethod(
         throw new NowCodingRouteError('bad-request', 'ops must be a non-empty array')
       }
       for (const op of ops) validateOp(op)
+      const modelOps = (ops as SettingsPathOp[]).filter(op => op.path.length === 3)
+      if (modelOps.length > 0) {
+        const document = requireView(deps).value as { models?: unknown[] }
+        const models = Array.isArray(document?.models) ? document.models : []
+        const limits = new Map<string, { contextWindow?: number; maxTokens?: number }>()
+        for (const op of modelOps) {
+          if (op.path[0] === 'models' ? models[Number(op.path[1])] === undefined : models.length > 0) {
+            throw new NowCodingRouteError('bad-request', 'edit an existing models entry when an explicit catalog is configured')
+          }
+          const id = op.path[0] === 'models' ? (models[Number(op.path[1])] as { id: string }).id : op.path[1]!
+          const entry = deps.options.catalog.find(model => model.id === id)
+          const next = limits.get(id) ?? { contextWindow: entry?.contextWindow, maxTokens: entry?.maxTokens }
+          if (op.op === 'set' && (op.path[2] === 'contextWindow' || op.path[2] === 'maxTokens')) next[op.path[2]] = op.value as number
+          limits.set(id, next)
+        }
+        for (const limit of limits.values()) {
+          if (limit.contextWindow !== undefined && limit.maxTokens !== undefined && limit.maxTokens > limit.contextWindow) {
+            throw new NowCodingRouteError('bad-request', 'maximum output must not exceed the combined context window')
+          }
+        }
+      }
       const expectedRevision = typeof body.expectedRevision === 'number' ? body.expectedRevision : undefined
       return mutateSettings(deps, ops as SettingsPathOp[], expectedRevision)
     }

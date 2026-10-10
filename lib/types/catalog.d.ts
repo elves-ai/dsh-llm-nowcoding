@@ -12,8 +12,8 @@
  * tier, because a group multiplier is what a request actually costs.
  *
  * Fast-capable entries support an internal selection id carrying
- * {@link FAST_MODEL_SUFFIX}; the lightning control selects it without adding a
- * duplicate picker row. The alias never reaches the provider.
+ * {@link FAST_MODEL_SUFFIX}; both ids are advertised so the Host can admit the
+ * lightning selection. The alias never reaches the provider.
  *
  * @module @elves-ai/dsh-llm-nowcoding/catalog
  */
@@ -93,8 +93,8 @@ export declare function catalogEntry(catalog: readonly NowCodingCatalogModel[], 
  */
 export declare function isFastCapable(entry: NowCodingCatalogModel | undefined): boolean;
 /**
- * Project a catalog into base-model picker rows; fast aliases are internal only.
+ * Project a catalog into selectable rows, advertising fast aliases beside bases.
  * @param catalog - the effective catalog.
- * @returns base entries in catalog order, without fast duplicates.
+ * @returns base entries and fast-capable aliases in catalog order.
  */
 export declare function selectorEntries(catalog: readonly NowCodingCatalogModel[]): readonly NowCodingCatalogModel[];
