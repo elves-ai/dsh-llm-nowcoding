@@ -5,6 +5,7 @@ export interface ModelConfigDraft {
   contextWindow: string
   maxTokens: string
   fast: boolean
+  image: boolean
 }
 
 export function modelConfigDraftOf(model: NowCodingRemoteModelView): ModelConfigDraft {
@@ -12,6 +13,7 @@ export function modelConfigDraftOf(model: NowCodingRemoteModelView): ModelConfig
     contextWindow: model.configuration === undefined ? '' : String(model.configuration.contextWindow),
     maxTokens: model.configuration === undefined ? '' : String(model.configuration.maxTokens),
     fast: model.configuration?.fast ?? false,
+    image: model.configuration?.input.includes('image') ?? false,
   }
 }
 
@@ -39,6 +41,10 @@ export function modelConfigOps(
       const key = field as 'contextWindow' | 'maxTokens' | 'fast'
       if (original !== undefined && original[key] === next) continue
       ops.push({ op: 'set', path: explicit ? ['models', String(index), key] : ['modelOverrides', id, key], value: next })
+    }
+    if (original === undefined || original.input.includes('image') !== draft.image) {
+      ops.push({ op: 'set', path: explicit ? ['models', String(index), 'input'] : ['modelOverrides', id, 'input'],
+        value: draft.image ? ['text', 'image'] : ['text'] })
     }
   }
   return ops

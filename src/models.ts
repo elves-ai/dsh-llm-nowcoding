@@ -62,11 +62,11 @@ export function resolveModelInfo(input: {
 }
 
 /**
- * List base models and fast aliases for the Host exact-id availability check.
+ * List base models only for the Host exact-id availability check.
  *
  * `visibleModels` narrows the listing without touching the catalog: an empty
  * or absent list shows everything. Legacy fast ids in the allowlist retain
- * their base row and its fast alias when fast-capable. The Host validates GUI
+ * their base row, never an extra fast row. The Host validates GUI
  * selection and prompt admission against this listing, not `resolveModel`.
  * {@link resolveModelInfo} is deliberately not narrowed: the route
  * serves any id the gateway accepts, and hiding one from the picker must not

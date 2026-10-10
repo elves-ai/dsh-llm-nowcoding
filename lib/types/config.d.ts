@@ -87,7 +87,7 @@ export interface Config {
     baseURL: Volatile<string>;
     /** Name shown by selectors and diagnostics. */
     displayName: Volatile<string>;
-    /** Legacy global fast flag; accepted but ignored. Use the session fast alias. */
+    /** Legacy global fast flag; accepted but ignored. Use the composer session switch. */
     fast: Volatile<boolean>;
     /** Wire spelling sent when fast mode is on. */
     fastServiceTier: Volatile<NowCodingFastServiceTier>;

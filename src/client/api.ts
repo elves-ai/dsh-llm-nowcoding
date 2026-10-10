@@ -76,7 +76,7 @@ export interface NowCodingSettingsEnvelope {
 export interface NowCodingSettingsView {
   /** Endpoint base every model, quota, and pricing path is resolved against. */
   baseURL?: string
-  /** Legacy global fast flag; accepted but ignored. Use the session fast alias. */
+  /** Legacy global fast flag; accepted but ignored. Use the composer session switch. */
   fast?: boolean
   /** Wire spelling sent when fast mode is on. */
   fastServiceTier?: NowCodingFastServiceTier
@@ -90,7 +90,7 @@ export interface NowCodingSettingsView {
 export type NowCodingSettingsOp =
   | { op: 'set'; path: [string]; value: unknown }
   | { op: 'unset'; path: [string] }
-  | { op: 'set'; path: ['modelOverrides', string, 'contextWindow' | 'maxTokens' | 'fast'] | ['models', string, 'contextWindow' | 'maxTokens' | 'fast']; value: number | boolean }
+  | { op: 'set'; path: ['modelOverrides', string, 'contextWindow' | 'maxTokens' | 'fast' | 'input'] | ['models', string, 'contextWindow' | 'maxTokens' | 'fast' | 'input']; value: number | boolean | readonly ('text' | 'image')[] }
 
 /** Success envelope of the NowCoding route. */
 interface NowCodingEnvelope<T> {
@@ -156,6 +156,15 @@ export function getQuota(signal?: AbortSignal): Promise<NowCodingQuotaView> {
   return post<NowCodingQuotaView>('quota.get', {}, signal)
 }
 
+/** Read and switch only the current session/model, without selecting another model. */
+export function getSessionFast(sessionId: string, model: string): Promise<{ enabled: boolean }> {
+  return post('session.fast.get', { sessionId, model })
+}
+
+export function setSessionFast(sessionId: string, model: string, enabled: boolean): Promise<{ enabled: boolean }> {
+  return post('session.fast.set', { sessionId, model, enabled })
+}
+
 /** One model of the key-scoped listing as `models.list` reports it. */
 export interface NowCodingRemoteModelView {
   /** The wire model id, verbatim. */
@@ -165,7 +174,7 @@ export interface NowCodingRemoteModelView {
   /** Whether the served catalog describes the id, so the picker can list it once kept. */
   known: boolean
   /** Effective Host metadata, absent for a model outside the catalog. */
-  configuration?: { contextWindow: number; maxTokens: number; fast: boolean }
+  configuration?: { contextWindow: number; maxTokens: number; fast: boolean; input: readonly ('text' | 'image')[] }
 }
 
 /** Answer of `models.list`. */

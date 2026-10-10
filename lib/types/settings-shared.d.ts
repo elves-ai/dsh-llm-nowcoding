@@ -141,7 +141,7 @@ export interface NowCodingSettings {
     baseURL?: string;
     /**
      * Legacy global fast flag, accepted for existing profiles but ignored.
-     * The session-selected `-fast` alias alone requests the higher-billed tier.
+     * The composer session switch requests the higher-billed tier independently of model ids.
      */
     fast?: boolean;
     /** Wire spelling sent when fast mode is on. */
@@ -177,7 +177,7 @@ export interface NowCodingSettings {
     panelSession?: string;
     /**
      * Model allowlist: the ids the model picker keeps. Empty or absent shows the
-     * whole catalog; a `-fast` alias stays visible while its base model is kept.
+     * whole catalog; legacy `-fast` allowlist ids retain only their base model.
      * Narrowing only — an id kept here that the served catalog does not carry is
      * simply not offered, and resolving one exact id still works either way.
      */

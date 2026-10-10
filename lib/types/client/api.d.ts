@@ -70,7 +70,7 @@ export interface NowCodingSettingsEnvelope {
 export interface NowCodingSettingsView {
     /** Endpoint base every model, quota, and pricing path is resolved against. */
     baseURL?: string;
-    /** Legacy global fast flag; accepted but ignored. Use the session fast alias. */
+    /** Legacy global fast flag; accepted but ignored. Use the composer session switch. */
     fast?: boolean;
     /** Wire spelling sent when fast mode is on. */
     fastServiceTier?: NowCodingFastServiceTier;
@@ -89,8 +89,8 @@ export type NowCodingSettingsOp = {
     path: [string];
 } | {
     op: 'set';
-    path: ['modelOverrides', string, 'contextWindow' | 'maxTokens' | 'fast'] | ['models', string, 'contextWindow' | 'maxTokens' | 'fast'];
-    value: number | boolean;
+    path: ['modelOverrides', string, 'contextWindow' | 'maxTokens' | 'fast' | 'input'] | ['models', string, 'contextWindow' | 'maxTokens' | 'fast' | 'input'];
+    value: number | boolean | readonly ('text' | 'image')[];
 };
 /** Wire error carrying the route's stable machine code. */
 export declare class NowCodingApiError extends Error {
@@ -103,6 +103,13 @@ export declare class NowCodingApiError extends Error {
  * @returns the balance view; `snapshot` is null until a key is configured.
  */
 export declare function getQuota(signal?: AbortSignal): Promise<NowCodingQuotaView>;
+/** Read and switch only the current session/model, without selecting another model. */
+export declare function getSessionFast(sessionId: string, model: string): Promise<{
+    enabled: boolean;
+}>;
+export declare function setSessionFast(sessionId: string, model: string, enabled: boolean): Promise<{
+    enabled: boolean;
+}>;
 /** One model of the key-scoped listing as `models.list` reports it. */
 export interface NowCodingRemoteModelView {
     /** The wire model id, verbatim. */
@@ -116,6 +123,7 @@ export interface NowCodingRemoteModelView {
         contextWindow: number;
         maxTokens: number;
         fast: boolean;
+        input: readonly ('text' | 'image')[];
     };
 }
 /** Answer of `models.list`. */

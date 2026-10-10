@@ -1,5 +1,5 @@
 /** Structural faces of the host-owned per-session model directory. No runtime imports. */
-import { fastModelId, isFastAlias, wireModelId } from '../catalog.ts'
+
 
 export interface ModelSelection {
   provider: string
@@ -23,16 +23,8 @@ export interface ModelDirectory {
 }
 
 /** Judge the selected model using Host capability, independently of picker rows. */
-export function fastControlOf(state: ModelDirectoryState, fastModels: readonly string[]): {
-  active: boolean
-  selection: ModelSelection
-} | undefined {
+export function fastControlOf(state: ModelDirectoryState, fastModels: readonly string[]): ModelSelection | undefined {
   const current = state.current
-  if (current?.provider !== 'nowcoding') return undefined
-  const active = isFastAlias(current.model)
-  const model = active ? wireModelId(current.model) : fastModelId(current.model)
-  // A previously selected alias can always return to standard, even after
-  // capability changes, provided the Host still advertises the base id.
-  if (!active && !fastModels.includes(current.model)) return undefined
-  return { active, selection: { ...current, model } }
+  if (current?.provider !== 'nowcoding' || !fastModels.includes(current.model)) return undefined
+  return current
 }

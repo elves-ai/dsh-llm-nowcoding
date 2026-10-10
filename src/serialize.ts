@@ -37,8 +37,10 @@ type WireRole = WireMessage['role']
 export interface SerializeContext {
   /** The served catalog, which owns fast-tier and reasoning eligibility. */
   catalog: readonly NowCodingCatalogModel[]
-  /** Legacy global fast flag; accepted but ignored. Use the session fast alias. */
+  /** Legacy global fast flag; accepted but ignored. Use the composer session switch. */
   fast: boolean
+  /** Explicit session-local mode, snapshotted before serializing. */
+  sessionFast?: boolean
   /** Wire spelling sent when fast mode is on. */
   fastServiceTier: NowCodingFastServiceTier
   /** Host-owned image projection; optional so text-only/headless calls still work. */
@@ -268,6 +270,7 @@ export async function serialize(options: GenerateOptions, context: SerializeCont
   const tier = decideFastTier({
     modelId: options.model,
     routeDefault: context.fast,
+    sessionFast: context.sessionFast,
     entry,
     wireValue: context.fastServiceTier,
   })

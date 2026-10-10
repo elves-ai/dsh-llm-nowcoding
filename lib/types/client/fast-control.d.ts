@@ -1,3 +1,4 @@
+/** Structural faces of the host-owned per-session model directory. No runtime imports. */
 export interface ModelSelection {
     provider: string;
     model: string;
@@ -31,7 +32,4 @@ export interface ModelDirectory {
     }>;
 }
 /** Judge the selected model using Host capability, independently of picker rows. */
-export declare function fastControlOf(state: ModelDirectoryState, fastModels: readonly string[]): {
-    active: boolean;
-    selection: ModelSelection;
-} | undefined;
+export declare function fastControlOf(state: ModelDirectoryState, fastModels: readonly string[]): ModelSelection | undefined;

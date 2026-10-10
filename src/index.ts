@@ -36,6 +36,7 @@ import {
   type NowCodingResolvedOptions,
 } from './config.ts'
 import { registerNowCodingSettingsRoutes } from './settings-routes.ts'
+import { createSessionFastStore } from './session-fast.ts'
 
 export { NowCodingAdapter } from './adapter.ts'
 export {
@@ -107,7 +108,8 @@ export const inject = ['llm']
 export function apply(ctx: Context, config: NowCodingConfig): void {
   const options = (): NowCodingResolvedOptions => resolveNowCodingOptions(ctx, config)
 
-  ctx.llm.registerAdapter([NOWCODING_PROVIDER_ROUTE], new NowCodingAdapter({ options, attachments: () => ctx.get('attachments') }))
+  const sessionFast = createSessionFastStore()
+  ctx.llm.registerAdapter([NOWCODING_PROVIDER_ROUTE], new NowCodingAdapter({ options, sessionFast, attachments: () => ctx.get('attachments') }))
   // Advertising the route lets configuration surfaces offer it beside the live
   // one, and name the section a page writes.
   ctx.llm.registerConfigurableProviders([{
@@ -129,5 +131,5 @@ export function apply(ctx: Context, config: NowCodingConfig): void {
     )
   }
 
-  registerNowCodingSettingsRoutes(ctx, options)
+  registerNowCodingSettingsRoutes(ctx, options, sessionFast)
 }

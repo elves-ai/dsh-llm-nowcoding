@@ -3,6 +3,7 @@ import type { SettingsDescriptor, SettingsPathOp } from '@deepseek-ai/dsh-settin
 import { effectiveCatalog, type NowCodingResolvedOptions } from '../src/config.ts'
 import { resolveModelInfo, listSelectableModels } from '../src/models.ts'
 import { createPanelLogin } from '../src/panel-login.ts'
+import { createSessionFastStore } from '../src/session-fast.ts'
 import {
   dispatchNowCodingMethod,
   isTrustedApiRequest,
@@ -204,6 +205,16 @@ describe('the fenced route dispatch', () => {
 })
 
 describe('per-model capability writes', () => {
+  it('writes image input through both supported catalog paths', async () => {
+    const { deps, settings } = depsOf(tokenConsole)
+    for (const input of [['text'], ['text', 'image']]) {
+      await dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['modelOverrides', 'gpt-5.4', 'input'], value: input }] })
+      expect(resolveModelInfo({ provider: 'nowcoding', model: 'gpt-5.4', catalog: effectiveCatalog(settings.value()) }).inputModalities).toEqual(input)
+    }
+    await settings.face.mutate(NS, [{ op: 'set', path: ['models'], value: [{ id: 'custom', contextWindow: 4096, maxTokens: 1024 }] }])
+    await dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['models', '0', 'input'], value: ['text', 'image'] }] })
+    expect(effectiveCatalog(settings.value())[0]?.input).toEqual(['text', 'image'])
+  })
   it('persists exact model-id leaves without replacing unrelated metadata and applies them to resolution', async () => {
     const { deps, settings } = depsOf(tokenConsole)
     const id = 'gpt-6.1-sol'
@@ -226,7 +237,7 @@ describe('per-model capability writes', () => {
     await dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['models', '0', 'fast'], value: true }] })
     const catalog = effectiveCatalog(settings.value())
     expect(catalog[0]).toMatchObject({ id: 'custom.v1', description: 'keep', fast: true })
-    expect(listSelectableModels('nowcoding', catalog).map(model => model.id)).toEqual(['custom.v1', 'custom.v1-fast'])
+    expect(listSelectableModels('nowcoding', catalog).map(model => model.id)).toEqual(['custom.v1'])
     await expect(dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['models', '1', 'fast'], value: true }] })).rejects.toMatchObject({ code: 'bad-request' })
     await expect(dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path: ['modelOverrides', 'custom.v1', 'fast'], value: true }] })).rejects.toMatchObject({ code: 'bad-request' })
   })
@@ -239,6 +250,8 @@ describe('per-model capability writes', () => {
       [['modelOverrides', 'model', 'contextWindow'], 1.5], [['modelOverrides', 'model', 'contextWindow'], Infinity],
       [['models', '-1', 'fast'], true], [['models', '0.5', 'fast'], true], [['models', '0', 'id'], 'changed'],
       [['modelOverrides'], {}],
+      [['modelOverrides', 'model', 'input'], []], [['modelOverrides', 'model', 'input'], ['text', 'audio']],
+      [['modelOverrides', 'model', 'input'], ['text', 'image', 'image']], [['modelOverrides', 'model', 'input'], true],
     ]) {
       const { deps, settings } = depsOf(tokenConsole)
       await expect(dispatchNowCodingMethod(deps, 'settings.mutate', { ops: [{ op: 'set', path, value }] })).rejects.toMatchObject({ code: 'bad-request' })
@@ -296,7 +309,7 @@ describe('models.list', () => {
     }))
     await expect(dispatchNowCodingMethod(deps, 'models.list', {})).resolves.toEqual({
       models: [
-        { id: 'gpt-5.6-sol', ownedBy: 'custom', known: true, configuration: { contextWindow: 400_000, maxTokens: 128_000, fast: true } },
+        { id: 'gpt-5.6-sol', ownedBy: 'custom', known: true, configuration: { contextWindow: 400_000, maxTokens: 128_000, fast: true, input: ['text'] } },
         { id: 'brand-new-model', ownedBy: 'custom', known: false },
       ],
     })
@@ -315,7 +328,6 @@ describe('models.list', () => {
     await expect(dispatchNowCodingMethod(deps, 'models.served', {})).resolves.toEqual({
       models: [
         { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
-        { id: 'gpt-5.6-sol-fast', name: 'GPT-5.6 Sol (fast)' },
         { id: 'gpt-6-astra', name: 'GPT-6 Astra' },
       ],
     })
@@ -343,6 +355,36 @@ describe('models.list', () => {
     await expect(dispatchNowCodingMethod(deps, 'settings.mutate', {
       ops: [{ op: 'set', path: ['visibleModels'], value: 'gpt-5.6-sol' }],
     })).rejects.toMatchObject({ code: 'bad-request' })
+  })
+})
+
+describe('session fast mode', () => {
+  it('stores mode separately from model selection and provider settings, isolated by session and model', async () => {
+    const { deps, settings } = depsOf(tokenConsole)
+    deps.sessionFast = createSessionFastStore()
+    deps.options = { ...deps.options, catalog: effectiveCatalog({}) }
+    const payload = { sessionId: 'first', model: 'gpt-5.4' }
+    await expect(dispatchNowCodingMethod(deps, 'session.fast.get', payload)).resolves.toEqual({ enabled: false })
+    await expect(dispatchNowCodingMethod(deps, 'session.fast.set', { ...payload, enabled: true })).resolves.toEqual({ enabled: true })
+    await expect(dispatchNowCodingMethod(deps, 'session.fast.get', payload)).resolves.toEqual({ enabled: true })
+    await expect(dispatchNowCodingMethod(deps, 'session.fast.get', { ...payload, sessionId: 'second' })).resolves.toEqual({ enabled: false })
+    await expect(dispatchNowCodingMethod(deps, 'session.fast.get', { ...payload, model: 'gpt-6.1-sol' })).resolves.toEqual({ enabled: false })
+    deps.sessionFast.set('first', 'gpt-6.1-sol', true)
+    deps.sessionFast.set('first', 'gpt-6.1-sol', false)
+    expect(deps.sessionFast.get('first', 'gpt-5.4')).toBe(true)
+    expect(settings.writes).toHaveLength(0)
+    deps.options = { ...deps.options, catalog: effectiveCatalog({ modelOverrides: { 'gpt-5.4': { fast: false } } }) }
+    await expect(dispatchNowCodingMethod(deps, 'session.fast.get', payload)).resolves.toEqual({ enabled: false })
+    await expect(dispatchNowCodingMethod(deps, 'session.fast.set', { ...payload, enabled: true })).rejects.toMatchObject({ code: 'bad-request' })
+    await expect(dispatchNowCodingMethod(deps, 'session.fast.set', { ...payload, enabled: false })).resolves.toEqual({ enabled: false })
+  })
+  it('rejects missing session identity, invalid modes and unsupported models', async () => {
+    const { deps } = depsOf(tokenConsole)
+    deps.sessionFast = createSessionFastStore()
+    deps.options = { ...deps.options, catalog: effectiveCatalog({}) }
+    for (const payload of [{ model: 'gpt-5.4', enabled: true }, { sessionId: 'first', model: 'gpt-5.4', enabled: 'true' }, { sessionId: 'first', model: 'unknown', enabled: true }]) {
+      await expect(dispatchNowCodingMethod(deps, 'session.fast.set', payload)).rejects.toMatchObject({ code: 'bad-request' })
+    }
   })
 })
 

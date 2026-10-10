@@ -26,6 +26,7 @@ import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm';
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment';
 import type { NowCodingResolvedOptions } from './config.ts';
+import type { SessionFastStore } from './session-fast.ts';
 /** Everything the adapter reads from outside itself. */
 export interface NowCodingAdapterOptions {
     /**
@@ -35,6 +36,7 @@ export interface NowCodingAdapterOptions {
     options: () => NowCodingResolvedOptions;
     /** Transport override for tests and for deployments that bring their own. */
     fetchImpl?: typeof fetch;
+    sessionFast?: SessionFastStore;
     /** Current host-owned attachment store, resolved at the start of each request. */
     attachments?: () => Pick<AttachmentStore, 'readImageRequest'> | undefined;
 }
@@ -42,6 +44,7 @@ export interface NowCodingAdapterOptions {
 export declare class NowCodingAdapter extends LlmAdapter {
     private readonly settings;
     private readonly fetchImpl;
+    private readonly sessionFast;
     private readonly attachments;
     /**
      * @param options - either the current-configuration reader, or that reader
@@ -59,7 +62,7 @@ export declare class NowCodingAdapter extends LlmAdapter {
      */
     providerInfo(provider: string): LlmProviderInfo;
     /**
-     * List base models and fast aliases admitted by the Host, narrowed to the
+     * List base models admitted by the Host, narrowed to the
      * configured `visibleModels` allowlist when one is set.
      * @param provider - one provider route owned by this adapter.
      * @returns one entry per selectable row, in catalog order.

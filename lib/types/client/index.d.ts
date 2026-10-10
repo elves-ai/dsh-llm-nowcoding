@@ -28,7 +28,7 @@ interface SlotsSeat {
         name: 'conversation.input.right';
         id: string;
         order: number;
-        inject(sessionId: string): Pick<NowCodingFastToggleProps, 'directory' | 'available'>;
+        inject(sessionId: string): Pick<NowCodingFastToggleProps, 'directory' | 'available' | 'sessionId'>;
     }, component: (props: NowCodingFastToggleProps) => ReactElement | null): () => void;
     inject(name: 'conversation.input.right', contribute: () => void | (() => void)): void;
     register(options: {

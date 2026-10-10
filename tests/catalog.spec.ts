@@ -31,17 +31,18 @@ describe('fast model aliases', () => {
 })
 
 describe('selector expansion', () => {
-  it('advertises each fast alias immediately after its base with inherited metadata', () => {
+  it('lists each base once without fast aliases', () => {
     const entries = selectorEntries(NOWCODING_BUILTIN_CATALOG)
     const base = entries.findIndex(entry => entry.id === 'gpt-5.6-sol')
     expect(base).toBeGreaterThanOrEqual(0)
-    expect(entries[base + 1]).toEqual({ ...entries[base], id: 'gpt-5.6-sol-fast', name: entries[base]!.name + ' (fast)' })
+    expect(entries.some(entry => isFastAlias(entry.id))).toBe(false)
+    expect(entries.filter(entry => entry.id === 'gpt-5.6-sol')).toHaveLength(1)
   })
 
   it('does not mutate or duplicate a configured alias row', () => {
     const base = NOWCODING_BUILTIN_CATALOG.find(entry => entry.id === 'gpt-5.6-sol')!
     const alias = { ...base, id: fastModelId(base.id) }
-    expect(selectorEntries([base, alias]).map(entry => entry.id)).toEqual([base.id, alias.id])
+    expect(selectorEntries([base, alias]).map(entry => entry.id)).toEqual([base.id])
     expect(base.id).toBe('gpt-5.6-sol')
   })
 
@@ -52,10 +53,10 @@ describe('selector expansion', () => {
     expect(ids).not.toContain('claude-sonnet-5' + FAST_MODEL_SUFFIX)
   })
 
-  it('adds exactly one alias only when the model is fast-capable', () => {
+  it('never adds a picker row for fast capability', () => {
     for (const entry of NOWCODING_BUILTIN_CATALOG) {
       const expanded = selectorEntries([entry]).map(candidate => candidate.id)
-      expect(expanded).toEqual(isFastCapable(entry) ? [entry.id, fastModelId(entry.id)] : [entry.id])
+      expect(expanded).toEqual([entry.id])
     }
   })
 })

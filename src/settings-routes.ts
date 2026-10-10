@@ -23,7 +23,8 @@ import type { NowCodingResolvedOptions } from './config.ts'
 import { NOWCODING_PROVIDER_ROUTE } from './config.ts'
 import { createLiveModelLister, NowCodingModelsError } from './live-models.ts'
 import { listSelectableModels } from './models.ts'
-import { isFastCapable } from './catalog.ts'
+import { catalogEntry, isFastCapable } from './catalog.ts'
+import type { SessionFastStore } from './session-fast.ts'
 import {
   createPanelLogin,
   NowCodingLoginError,
@@ -72,6 +73,8 @@ export interface NowCodingRouteDeps {
   login: NowCodingPanelLogin
   /** Transport override for the gateway reads; production uses the global `fetch`. */
   fetchImpl?: typeof fetch
+  /** Shared with this plugin instance's adapter. */
+  sessionFast?: SessionFastStore
 }
 
 /** Answer of the two sign-in methods; the credential itself never rides it. */
@@ -128,7 +131,7 @@ export interface NowCodingRemoteModelView {
   ownedBy?: string
   /** Whether the served catalog describes the id, so the picker can list it once kept. */
   known: boolean
-  configuration?: { contextWindow: number; maxTokens: number; fast: boolean }
+  configuration?: { contextWindow: number; maxTokens: number; fast: boolean; input: readonly ('text' | 'image')[] }
 }
 
 /** Model-list payload returned by `models.list`. */
@@ -280,8 +283,15 @@ function validateOp(op: unknown): asserts op is SettingsPathOp {
     const safeModel = root === 'models'
       ? typeof model === 'string' && /^(0|[1-9][0-9]*)$/.test(model) && Number.isSafeInteger(Number(model))
       : typeof model === 'string' && model.trim() !== '' && !['__proto__', 'constructor', 'prototype'].includes(model)
-    if (!safeModel || !['contextWindow', 'maxTokens', 'fast'].includes(field) || op.op !== 'set') {
+    if (!safeModel || !['contextWindow', 'maxTokens', 'fast', 'input'].includes(field) || op.op !== 'set') {
       throw new NowCodingRouteError('bad-request', 'invalid model configuration path')
+    }
+    if (field === 'input') {
+      if (!Array.isArray(op.value) || op.value.length < 1 || !op.value.includes('text')
+        || !op.value.every(value => value === 'text' || value === 'image') || new Set(op.value).size !== op.value.length) {
+        throw new NowCodingRouteError('bad-request', 'input must be [text] or [text, image]')
+      }
+      return
     }
     if (field === 'fast' ? typeof op.value !== 'boolean'
       : typeof op.value !== 'number' || !Number.isSafeInteger(op.value) || op.value < 1) {
@@ -417,6 +427,7 @@ async function readModelCatalog(options: NowCodingResolvedOptions, fetchImpl: ty
         contextWindow: known.get(model.id)!.contextWindow,
         maxTokens: known.get(model.id)!.maxTokens,
         fast: isFastCapable(known.get(model.id)),
+        input: known.get(model.id)!.input,
       } } : {},
       ...model.ownedBy === undefined ? {} : { ownedBy: model.ownedBy },
     })),
@@ -521,6 +532,21 @@ export async function dispatchNowCodingMethod(
     case 'models.fast':
       // Capability follows exact resolution, not advisory picker visibility.
       return { models: deps.options.catalog.filter(isFastCapable).map(entry => entry.id) }
+    case 'session.fast.get':
+    case 'session.fast.set': {
+      const body = requireObject(payload, String(method))
+      const sessionId = requireStringField(body, 'sessionId')
+      const model = requireStringField(body, 'model')
+      if (deps.sessionFast === undefined) throw new NowCodingRouteError('unavailable', 'session fast state is unavailable', 503)
+      if (method === 'session.fast.set') {
+        if (typeof body.enabled !== 'boolean') throw new NowCodingRouteError('bad-request', 'enabled must be a boolean')
+        if (body.enabled && !isFastCapable(catalogEntry(deps.options.catalog, model))) {
+          throw new NowCodingRouteError('bad-request', 'model does not support fast mode')
+        }
+        deps.sessionFast.set(sessionId, model, body.enabled)
+      }
+      return { enabled: isFastCapable(catalogEntry(deps.options.catalog, model)) && deps.sessionFast.get(sessionId, model) }
+    }
     case 'settings.mutate': {
       const body = requireObject(payload, 'settings.mutate')
       const ops = body.ops
@@ -579,6 +605,7 @@ export async function dispatchNowCodingMethod(
 export function registerNowCodingSettingsRoutes(
   ctx: Context,
   options: () => NowCodingResolvedOptions,
+  sessionFast?: SessionFastStore,
 ): void {
   // One sign-in client per plugin apply: a two-factor challenge is a session
   // held between two requests, so it cannot be rebuilt per call.
@@ -605,6 +632,7 @@ export function registerNowCodingSettingsRoutes(
             settings: ctx.get('settings') as NowCodingSettingsFace | undefined,
             options: options(),
             login,
+            sessionFast,
           }
           writeOk(res, await dispatchNowCodingMethod(deps, record.method, record.payload))
         } catch (error) {

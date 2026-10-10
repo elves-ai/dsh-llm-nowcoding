@@ -11,11 +11,12 @@ interface SessionSnapshot {
 type SnapshotHook<T> = <R>(selector: (snapshot: T) => R) => R | undefined;
 export interface NowCodingFastToggleProps {
     directory: ModelDirectory;
+    sessionId: string;
     available: boolean;
     input?: InputSnapshot;
     session?: SessionSnapshot;
     useInput?: SnapshotHook<InputSnapshot>;
     useSession?: SnapshotHook<SessionSnapshot>;
 }
-export declare function NowCodingFastToggle({ directory, available, input, session, useInput, useSession }: NowCodingFastToggleProps): ReactElement | null;
+export declare function NowCodingFastToggle({ directory, sessionId, available, input, session, useInput, useSession }: NowCodingFastToggleProps): ReactElement | null;
 export {};

@@ -15,6 +15,7 @@ import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:
 import type { Context } from '@deepseek-ai/cordis';
 import { type SettingsDescriptor, type SettingsPathOp } from '@deepseek-ai/dsh-settings';
 import type { NowCodingResolvedOptions } from './config.ts';
+import type { SessionFastStore } from './session-fast.ts';
 import { type NowCodingPanelCredential, type NowCodingPanelLogin } from './panel-login.ts';
 import { type NowCodingQuotaSnapshot } from './quota.ts';
 /** Structural webServer face (mirror of `@deepseek-ai/dsh-host-webserver`). */
@@ -47,6 +48,8 @@ export interface NowCodingRouteDeps {
     login: NowCodingPanelLogin;
     /** Transport override for the gateway reads; production uses the global `fetch`. */
     fetchImpl?: typeof fetch;
+    /** Shared with this plugin instance's adapter. */
+    sessionFast?: SessionFastStore;
 }
 /** Answer of the two sign-in methods; the credential itself never rides it. */
 export type NowCodingLoginAnswer = {
@@ -102,6 +105,7 @@ export interface NowCodingRemoteModelView {
         contextWindow: number;
         maxTokens: number;
         fast: boolean;
+        input: readonly ('text' | 'image')[];
     };
 }
 /** Model-list payload returned by `models.list`. */
@@ -149,7 +153,7 @@ export declare function dispatchNowCodingMethod(deps: NowCodingRouteDeps, method
  * @param ctx - plugin context.
  * @param options - thunk returning the route's current resolved options.
  */
-export declare function registerNowCodingSettingsRoutes(ctx: Context, options: () => NowCodingResolvedOptions): void;
+export declare function registerNowCodingSettingsRoutes(ctx: Context, options: () => NowCodingResolvedOptions, sessionFast?: SessionFastStore): void;
 /**
  * Whether a hostname names the local loopback authority.
  * @param hostname - a URL hostname.

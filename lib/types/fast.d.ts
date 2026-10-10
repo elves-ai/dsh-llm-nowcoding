@@ -13,7 +13,7 @@ import { type NowCodingCatalogModel } from './catalog.ts';
 import type { NowCodingFastServiceTier } from './settings-shared.ts';
 /** What one request should send for the fast tier. */
 export interface FastTierDecision {
-    /** Whether the request explicitly selected the fast alias. */
+    /** Whether this session or a legacy direct alias explicitly requested fast. */
     readonly requested: boolean;
     /** `service_tier` value for the request body; absent omits the field entirely. */
     readonly serviceTier?: NowCodingFastServiceTier;
@@ -31,6 +31,8 @@ export interface FastTierDecision {
  */
 export declare function decideFastTier(input: {
     modelId: string;
+    /** Explicit session-local fast switch; absent preserves legacy direct aliases. */
+    sessionFast?: boolean;
     /** Deprecated; accepted for existing profiles/callers, never applied. */
     routeDefault: boolean;
     entry: NowCodingCatalogModel | undefined;

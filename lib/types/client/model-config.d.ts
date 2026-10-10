@@ -4,6 +4,7 @@ export interface ModelConfigDraft {
     contextWindow: string;
     maxTokens: string;
     fast: boolean;
+    image: boolean;
 }
 export declare function modelConfigDraftOf(model: NowCodingRemoteModelView): ModelConfigDraft;
 /** An explicit models list owns its entries; otherwise edit modelOverrides. */

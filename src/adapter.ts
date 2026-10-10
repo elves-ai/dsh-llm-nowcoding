@@ -31,6 +31,7 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { NowCodingResolvedOptions } from './config.ts'
 import { listSelectableModels, resolveModelInfo } from './models.ts'
 import { serialize } from './serialize.ts'
+import type { SessionFastStore } from './session-fast.ts'
 import { parseSse } from './sse.ts'
 import { postChatCompletion } from './transport.ts'
 import { ChatStreamTranslator } from './translate.ts'
@@ -44,6 +45,7 @@ export interface NowCodingAdapterOptions {
   options: () => NowCodingResolvedOptions
   /** Transport override for tests and for deployments that bring their own. */
   fetchImpl?: typeof fetch
+  sessionFast?: SessionFastStore
   /** Current host-owned attachment store, resolved at the start of each request. */
   attachments?: () => Pick<AttachmentStore, 'readImageRequest'> | undefined
 }
@@ -52,6 +54,7 @@ export interface NowCodingAdapterOptions {
 export class NowCodingAdapter extends LlmAdapter {
   private readonly settings: () => NowCodingResolvedOptions
   private readonly fetchImpl: typeof fetch | undefined
+  private readonly sessionFast: SessionFastStore | undefined
   private readonly attachments: (() => Pick<AttachmentStore, 'readImageRequest'> | undefined) | undefined
 
   /**
@@ -68,10 +71,12 @@ export class NowCodingAdapter extends LlmAdapter {
     if (typeof input === 'function') {
       this.settings = input
       this.fetchImpl = undefined
+      this.sessionFast = undefined
       this.attachments = undefined
     } else {
       this.settings = input.options
       this.fetchImpl = input.fetchImpl
+      this.sessionFast = input.sessionFast
       this.attachments = input.attachments
     }
   }
@@ -86,7 +91,7 @@ export class NowCodingAdapter extends LlmAdapter {
   }
 
   /**
-   * List base models and fast aliases admitted by the Host, narrowed to the
+   * List base models admitted by the Host, narrowed to the
    * configured `visibleModels` allowlist when one is set.
    * @param provider - one provider route owned by this adapter.
    * @returns one entry per selectable row, in catalog order.
@@ -123,6 +128,8 @@ export class NowCodingAdapter extends LlmAdapter {
     // One snapshot per operation: the endpoint, credential, catalog, and timeout
     // of this request cannot change halfway through it.
     const settings = this.settings()
+    const sessionFast = options.sessionId === undefined || options.purpose !== undefined
+      ? undefined : this.sessionFast?.get(options.sessionId, options.model)
     const consumer = new AbortController()
     const signal = options.signal === undefined
       ? consumer.signal
@@ -134,6 +141,7 @@ export class NowCodingAdapter extends LlmAdapter {
       const body = await serialize({ ...options, signal }, {
         catalog: settings.catalog,
         fast: settings.fast,
+        sessionFast,
         fastServiceTier: settings.fastServiceTier,
         attachments: this.attachments?.(),
       })

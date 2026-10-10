@@ -8,6 +8,7 @@ import { BlockAssembler, LlmError, offloadedImageText, requestImageHandleText } 
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock, GenerateOptions, ImageBlock, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
+import { createSessionFastStore } from '../src/session-fast.ts'
 import { MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm/brand'
 import { describe, expect, it } from 'vitest'
 import { NowCodingAdapter } from '../src/adapter.ts'
@@ -348,6 +349,27 @@ describe('NowCodingAdapter request mapping', () => {
     await iterator.return?.(undefined)
   })
 
+  it('sends the session tier on a base model without leaking to other sessions or auxiliary calls', async () => {
+    const { calls, fetchImpl } = stubFetch(TEXT_TRANSCRIPT)
+    const sessionFast = createSessionFastStore()
+    let config = options()
+    const adapter = new NowCodingAdapter({ options: () => config, sessionFast, fetchImpl })
+    const sessionId = 'first' as NonNullable<GenerateOptions['sessionId']>
+    sessionFast.set(sessionId, MODEL, true)
+    await collect(adapter.stream(request({ sessionId, reasoningEffort: ReasoningEffortId('xhigh') })))
+    expect(calls[0]?.body).toMatchObject({ model: MODEL, reasoning_effort: 'xhigh', service_tier: 'priority' })
+    await collect(adapter.stream(request({ sessionId: 'second' as typeof sessionId })))
+    await collect(adapter.stream(request()))
+    await collect(adapter.stream(request({ sessionId, purpose: 'title' as NonNullable<GenerateOptions['purpose']> })))
+    config = options({ catalog: NOWCODING_BUILTIN_CATALOG.map(entry => ({ ...entry, fast: false })) })
+    await collect(adapter.stream(request({ sessionId })))
+    config = options()
+    sessionFast.set(sessionId, MODEL, false)
+    await collect(adapter.stream(request({ sessionId })))
+    expect(calls.map(call => Object.hasOwn(call.body, 'service_tier'))).toEqual([true, false, false, false, false, false])
+    expect((await adapter.listModels('nowcoding')).some(model => model.id.endsWith('-fast'))).toBe(false)
+  })
+
   it('sends service_tier with the wire model id for a fast alias', async () => {
     const { calls } = await run(TEXT_TRANSCRIPT, { model: FAST_MODEL })
 
@@ -685,7 +707,7 @@ describe('NowCodingAdapter metadata', () => {
     })
     const models = await adapter.listModels('nowcoding')
     expect(models.map(model => model.id)).toContain(MODEL)
-    expect(models.map(model => model.id)).toContain(FAST_MODEL)
+    expect(models.map(model => model.id)).not.toContain(FAST_MODEL)
     expect(models.every(model => model.provider === 'nowcoding')).toBe(true)
   })
 

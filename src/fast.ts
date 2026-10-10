@@ -15,7 +15,7 @@ import type { NowCodingFastServiceTier } from './settings-shared.ts'
 
 /** What one request should send for the fast tier. */
 export interface FastTierDecision {
-  /** Whether the request explicitly selected the fast alias. */
+  /** Whether this session or a legacy direct alias explicitly requested fast. */
   readonly requested: boolean
   /** `service_tier` value for the request body; absent omits the field entirely. */
   readonly serviceTier?: NowCodingFastServiceTier
@@ -34,14 +34,15 @@ export interface FastTierDecision {
  */
 export function decideFastTier(input: {
   modelId: string
+  /** Explicit session-local fast switch; absent preserves legacy direct aliases. */
+  sessionFast?: boolean
   /** Deprecated; accepted for existing profiles/callers, never applied. */
   routeDefault: boolean
   entry: NowCodingCatalogModel | undefined
   wireValue: NowCodingFastServiceTier
 }): FastTierDecision {
-  // The selected id owns the tier. Keep routeDefault in the input for legacy
-  // callers, but never let a persisted global switch upgrade a plain model.
-  const requested = isFastAlias(input.modelId)
+  // Session state owns the tier. The legacy global default never upgrades a request.
+  const requested = input.sessionFast ?? isFastAlias(input.modelId)
   if (!requested) return { requested: false }
   if (!isFastCapable(input.entry)) return { requested: true, droppedForModel: true }
   return { requested: true, serviceTier: input.wireValue }

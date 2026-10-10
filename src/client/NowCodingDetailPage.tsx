@@ -486,7 +486,7 @@ export function NowCodingDetailPage(): ReactElement | null {
       </div>
 
       <div className={css.card}>
-        <p className={css.cardIntro}>模型配置：拉取列表后，可修改各模型的上下文窗口（输入与输出合计）、最大输出 tokens 和是否支持 fast。勾选支持 fast 仅声明能力，不会开启当前会话的快速模式，也不能替站方开启透传。修改后点击底部「保存」。</p>
+        <p className={css.cardIntro}>模型配置：拉取列表后，可修改各模型的上下文窗口（输入与输出合计）、最大输出 tokens，以及是否支持 fast 和图片输入。勾选支持 fast 只启用该模型的闪电按钮，不会添加模型选项或自动开启快速模式，也不能替站方开启透传。勾选图片表示该模型可接收用户上传的图片。修改后点击底部「保存」。</p>
         <p className={css.cardIntro}>模型白名单：勾选要保留的模型，模型选择器就只列出这些；一个都不勾选时显示全部目录模型。列表拉取自站方按当前 Key 返回的可用模型，保存后生效。</p>
 
         {served !== null && served.length > 0 && (
@@ -581,6 +581,11 @@ export function NowCodingDetailPage(): ReactElement | null {
                           onChange={event => { edit({ fast: event.currentTarget.checked }) }} />
                         支持 fast
                       </label>
+                      <label className={css.modelFast}>
+                        <input type="checkbox" className={css.checkbox} aria-label={model.id + ' 支持图片'} checked={draft.image} disabled={!editable}
+                          onChange={event => { edit({ image: event.currentTarget.checked }) }} />
+                        支持图片
+                      </label>
                     </div>
                     {!inCatalog && <p className={css.hint}>此模型不在自定义 models 目录中，需先在 profile 中添加。</p>}
                   </div>
@@ -588,7 +593,7 @@ export function NowCodingDetailPage(): ReactElement | null {
                 {filteredModels.length === 0 && <p className={css.hint}>没有匹配的模型。</p>}
               </div>
               <p className={css.hint}>
-                站方为当前 Key 返回 {modelList.length} 个模型；「目录外」模型填写两个 token 数值并保存后即可加入覆盖目录（默认仅文本输入）。已有自定义 models 目录时，仅能编辑目录中已存在的模型。
+                站方为当前 Key 返回 {modelList.length} 个模型；「目录外」模型填写两个 token 数值并保存后即可加入覆盖目录（未勾选图片时仅文本输入）。已有自定义 models 目录时，仅能编辑目录中已存在的模型。
               </p>
             </div>
           </div>
