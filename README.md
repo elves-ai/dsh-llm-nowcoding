@@ -35,7 +35,7 @@ It registers a `nowcoding` provider route on `ctx.llm` with a built-in model cat
 
 ## Requirements
 
-- **dsh `0.1.7-rc.2` or `0.2.0-rc.2`.** Both lines ship the same `ctx.llm` adapter contract, settings seam, and client slot contracts — the Plugins page's `plugins.bundle.config` among them — so the peer range covers both. An older line nests a second copy of the seam into the profile, and the adapter then registers into a registry the running loop never reads.
+- **dsh `0.1.7-rc.2`, `0.2.0-rc.2`, or `0.2.1-rc.2`.** All three ship the same `ctx.llm` adapter contract, settings seam, and client slot contracts — the Plugins page's `plugins.bundle.config` among them. `0.2.1` changed the web bundle's composition, not those contracts: it removed the `webRuntime` service, so the fenced `/nowcoding/api` route resolves trust authorities from `webRuntime` or `webStartup` at request time instead of requiring either by injection. An older line nests a second copy of the seam into the profile, and the adapter then registers into a registry the running loop never reads.
 - **Node.js `>=22`.**
 - **A NowCoding API key** (`sk-...`), from [nowcoding.ai](https://nowcoding.ai/).
 
@@ -215,7 +215,7 @@ The reader is a host-side client (`src/quota.ts`) with an injected transport, so
 
 1. **The route appears.** Settings → Models lists a **NowCoding** route with the shipped catalog.
 2. **A turn completes.** Pick `gpt-5.6-sol` (or any model your group serves) and send a message. Text streams, tool calls run, and the session's token accounting fills in.
-3. **The balance reads.** The sidebar card and the detail page both show a remaining balance. If it shows an error, its code says whether the key was rejected (`unauthorized`) or the gateway could not be reached (`unreachable`).
+3. **The balance reads.** The sidebar card and the detail page both show a remaining balance. If it shows an error, its code says whether the key was rejected (`unauthorized`), the gateway could not be reached (`unreachable`), or the Host never registered the plugin's route (`route-unavailable` — the running dsh line predates this plugin's route registration; update the plugin).
 4. **Fast mode is visible in the request.** With fast mode enabled by the lightning button, the request body carries `service_tier`; check the response's echoed tier to learn whether the channel forwards it.
 5. **Sign-in fills the console credential.** On the detail page, the sign-in block with the account name and password writes Panel user ID and the sign-in session, reads the access token when the account has one, and switches the balance to the plan's allowance. A refused password reports so in Chinese; a deployment with Turnstile on reports that instead.
 6. **Image input reaches the model.** Choose an image-capable GPT, upload an image and ask about its contents; the request carries an inline image part rather than rejecting the attachment.

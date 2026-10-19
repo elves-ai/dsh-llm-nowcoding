@@ -44,6 +44,10 @@ import {
 
 /** Structural webServer face (mirror of `@deepseek-ai/dsh-host-webserver`). */
 export interface NowCodingWebServer {
+  /** Bound interface literal; present on lines that expose the listener address. */
+  readonly host?: string
+  /** Listener protocol (`http:` or `https:`); present on lines that expose it. */
+  readonly protocol?: string
   register(route: {
     kind: 'exact'
     path: string
@@ -51,8 +55,14 @@ export interface NowCodingWebServer {
   }): () => void
 }
 
-/** Structural webRuntime face (the bind-derived trusted host list). */
-export interface NowCodingWebRuntime {
+/**
+ * Structural face of whichever service carries the deployment's trust authorities.
+ *
+ * The 0.1.7 and 0.2.0 lines provide `webRuntime`; 0.2.1 replaced it with
+ * `webStartup`, which is the service its own `/api` gateway reads. Both carry
+ * the same `trustedHosts` array, so the route asks for whichever one exists.
+ */
+export interface NowCodingTrustService {
   trustedHosts: readonly string[]
 }
 
@@ -593,8 +603,30 @@ export async function dispatchNowCodingMethod(
   }
 }
 
+/** Services that carry the deployment's trust authorities, newest line first. */
+const TRUST_SERVICES = ['webRuntime', 'webStartup'] as const
+
+/** Authorities the deployment's own `/api` gateway trusts. */
+function trustedHostsOf(routeCtx: Context): readonly string[] {
+  for (const name of TRUST_SERVICES) {
+    const service = routeCtx.get(name) as NowCodingTrustService | undefined
+    if (service !== undefined && Array.isArray(service.trustedHosts)) return service.trustedHosts
+  }
+  // A deployment that provides neither names no extra authority; the fence
+  // still admits loopback and the listener's own bind address.
+  return []
+}
+
 /**
- * Register `/nowcoding/api` while `webServer` and `webRuntime` are mounted.
+ * Register `/nowcoding/api` while `webServer` is mounted.
+ *
+ * The route depends on `webServer` alone. Its trust authorities come from
+ * whichever service the running line provides — `webRuntime` on 0.1.7 and
+ * 0.2.0, `webStartup` on 0.2.1, where `webRuntime` was removed — so the
+ * route still registers when neither is mounted. Requiring a specific trust
+ * service by injection would silently skip registration on a line that renamed
+ * it, and the SPA fallback would then answer 405 with no body, which the
+ * browser half reports as an unparseable response.
  *
  * The optional-inject shape keeps the provider usable in deployments without a
  * web server; the settings page and the quota card simply have no route to call.
@@ -610,14 +642,13 @@ export function registerNowCodingSettingsRoutes(
   // One sign-in client per plugin apply: a two-factor challenge is a session
   // held between two requests, so it cannot be rebuilt per call.
   const login = createPanelLogin({ baseURL: () => options().baseURL })
-  ctx.inject(['webServer', 'webRuntime'], (routeCtx) => {
+  ctx.inject(['webServer'], (routeCtx) => {
     const webServer = routeCtx.get('webServer') as NowCodingWebServer
-    const webRuntime = routeCtx.get('webRuntime') as NowCodingWebRuntime
     routeCtx.effect(() => webServer.register({
       kind: 'exact',
       path: ROUTE_PATH,
       handler: async (req, res) => {
-        if (!isTrustedApiRequest(req.headers, webRuntime.trustedHosts)) {
+        if (!isTrustedApiRequest(req.headers, trustedHostsOf(routeCtx), webServer.host, protocolOf(webServer))) {
           writeJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
           return
         }
@@ -651,10 +682,14 @@ function header(headers: IncomingHttpHeaders, name: string): string | undefined 
   return typeof value === 'string' ? value : undefined
 }
 
-/** Normalized URL of a Host-header authority, or undefined when unparsable. */
-function parseAuthority(authority: string): URL | undefined {
+/**
+ * Normalized URL of a Host-header authority, or undefined when unparsable.
+ * @param authority - `host` or `host:port` text.
+ * @param protocol - listener protocol, which decides the default port stripped.
+ */
+function parseAuthority(authority: string, protocol = 'http:'): URL | undefined {
   try {
-    return new URL(`http://${authority}`)
+    return new URL(`${protocol}//${authority}`)
   } catch {
     return undefined
   }
@@ -675,14 +710,18 @@ export function isLoopbackHostname(hostname: string): boolean {
 
 /** Canonical authority form: hostname, or hostname:port when a port was written. */
 function canonicalAuthority(entry: string, entryUrl: URL): string {
-  const port = entryUrl.port !== '' ? entryUrl.port : new URL(`https://${entry}`).port
+  // The port is judged through both special schemes, so `:80` and `:443` still
+  // count as explicit; reading it from the raw string would misread shapes
+  // like `host:port `, which WHATWG parsing trims to a port-less entry.
+  const other = entryUrl.protocol === 'http:' ? 'https:' : 'http:'
+  const port = entryUrl.port !== '' ? entryUrl.port : new URL(`${other}//${entry}`).port
   return port === '' ? entryUrl.hostname : `${entryUrl.hostname}:${port}`
 }
 
 /** Whether the request authority matches a trustedHosts entry (exact or port-less). */
-function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): boolean {
+function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[], protocol: string): boolean {
   return trustedHosts.some((entry) => {
-    const entryUrl = parseAuthority(entry)
+    const entryUrl = parseAuthority(entry, protocol)
     if (entryUrl === undefined) return false
     return canonicalAuthority(entry, entryUrl) === entryUrl.hostname
       ? entryUrl.hostname === hostUrl.hostname
@@ -691,21 +730,61 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
 }
 
 /**
+ * Whether a request authority is the listener's own bind address.
+ *
+ * A browser dialing the bound interface literal sends it as `Host`, and the
+ * gateway's own fence accepts it on any port: the literal is no rebinding
+ * target, and the Origin and cross-site checks still apply. Matching ignores
+ * the port and an interface zone id, which is a selector rather than address
+ * text.
+ * @param hostUrl - parsed request authority.
+ * @param bindHost - the listener's bind address, when the line exposes it.
+ * @returns whether the authority names the bind address.
+ */
+function isBindAddressAuthority(hostUrl: URL, bindHost: string | undefined): boolean {
+  if (bindHost === undefined) return false
+  const zoneAt = bindHost.indexOf('%')
+  const address = zoneAt === -1 ? bindHost : bindHost.slice(0, zoneAt)
+  const bindUrl = parseAuthority(address.includes(':') ? `[${address}]` : address)
+  return bindUrl !== undefined && bindUrl.hostname === hostUrl.hostname
+}
+
+/** Whether a request reaches this listener behind its own TLS termination. */
+function protocolOf(webServer: NowCodingWebServer): string {
+  return webServer.protocol === 'https:' ? 'https:' : 'http:'
+}
+
+/**
  * Whether the browser request comes from the DSH host itself.
+ *
+ * Same policy as the `/api` gateway's fence: the Host must be loopback, the
+ * listener's own bind address, or a declared trusted authority, and any
+ * browser markers on the request must be same-origin.
  * @param headers - the incoming request headers.
- * @param trustedHosts - the runtime's bind-derived trusted host list.
+ * @param trustedHosts - the deployment's trusted authorities, as its `/api` gateway reads them.
+ * @param bindHost - the listener's bind address, accepted on any port.
+ * @param protocol - the listener's protocol, deciding the Host port that is default.
  * @returns whether the request may reach the plugin's route.
  */
-export function isTrustedApiRequest(headers: IncomingHttpHeaders, trustedHosts: readonly string[]): boolean {
+export function isTrustedApiRequest(
+  headers: IncomingHttpHeaders,
+  trustedHosts: readonly string[],
+  bindHost?: string,
+  protocol = 'http:',
+): boolean {
   const host = header(headers, 'host')
   if (host === undefined) return false
-  const hostUrl = parseAuthority(host)
+  const hostUrl = parseAuthority(host, protocol)
   if (hostUrl === undefined) return false
-  if (!isLoopbackHostname(hostUrl.hostname) && !isTrustedAuthority(hostUrl, trustedHosts)) return false
+  if (!isLoopbackHostname(hostUrl.hostname)
+    && !isTrustedAuthority(hostUrl, trustedHosts, protocol)
+    && !isBindAddressAuthority(hostUrl, bindHost)) return false
   if (header(headers, 'sec-fetch-site') === 'cross-site') return false
   const origin = header(headers, 'origin')
   if (origin === undefined) return true
   try {
+    // Compare under the Host's own scheme so a default port normalizes the
+    // same way on both sides; the transport may stay HTTP behind a proxy.
     return new URL(origin).host === hostUrl.host
   } catch {
     return false

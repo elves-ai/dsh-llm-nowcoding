@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import type { SettingsDescriptor, SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { effectiveCatalog, type NowCodingResolvedOptions } from '../src/config.ts'
 import { resolveModelInfo, listSelectableModels } from '../src/models.ts'
@@ -7,6 +8,7 @@ import { createSessionFastStore } from '../src/session-fast.ts'
 import {
   dispatchNowCodingMethod,
   isTrustedApiRequest,
+  registerNowCodingSettingsRoutes,
   type NowCodingRouteDeps,
   type NowCodingSettingsFace,
 } from '../src/settings-routes.ts'
@@ -408,5 +410,141 @@ describe('the browser-trust fence', () => {
     expect(isTrustedApiRequest({ host: '127.0.0.1:19387', 'sec-fetch-site': 'cross-site' }, [])).toBe(false)
     expect(isTrustedApiRequest({ host: '127.0.0.1:19387', origin: 'https://evil.example' }, [])).toBe(false)
     expect(isTrustedApiRequest({ host: '127.0.0.1:19387', origin: 'http://127.0.0.1:19387' }, [])).toBe(true)
+  })
+
+  it('accepts the listener bind address on any port, as the /api gateway does', () => {
+    expect(isTrustedApiRequest({ host: '192.168.1.5:51345' }, [], '192.168.1.5')).toBe(true)
+    expect(isTrustedApiRequest({ host: '192.168.1.5' }, [], '192.168.1.5')).toBe(true)
+    expect(isTrustedApiRequest({ host: '192.168.1.6:51345' }, [], '192.168.1.5')).toBe(false)
+  })
+})
+
+/** One captured HTTP response. */
+interface Captured {
+  status: number
+  headers: Record<string, unknown>
+  body: string
+}
+
+/** A request double carrying one JSON body. */
+function requestOf(method: string, body: unknown, headers: Record<string, string> = { host: '127.0.0.1:51345' }) {
+  const text = JSON.stringify(body)
+  return {
+    method,
+    headers,
+    async *[Symbol.asyncIterator]() { yield Buffer.from(text) },
+  }
+}
+
+/** A response double recording the status, headers, and body. */
+function responseOf(): Captured & { writeHead: unknown; end: unknown } {
+  const captured = {
+    status: 0,
+    headers: {} as Record<string, unknown>,
+    body: '',
+    writeHead(status: number, headers?: Record<string, unknown>) {
+      captured.status = status
+      captured.headers = headers ?? {}
+    },
+    end(body?: string) { captured.body = body ?? '' },
+  }
+  return captured as unknown as Captured & { writeHead: unknown; end: unknown }
+}
+
+/** The route a Host registration handed the plugin. */
+type RegisteredRoute = { kind: 'exact'; path: string; handler: (req: unknown, res: unknown) => void | Promise<void> }
+
+/**
+ * Mount the route on a real cordis context whose webServer registers it, then
+ * hand back the registration plus a way to run one request through it.
+ *
+ * The injected fiber activates asynchronously, so mounting awaits it — the
+ * point of the test is the dependency set the plugin declares, and a route
+ * that only ever activates when some other renamed service exists is exactly
+ * the regression this guards.
+ */
+async function mountRoute(
+  trust?: { name: 'webRuntime' | 'webStartup'; trustedHosts: readonly string[] },
+  webServer: { host?: string; protocol?: string } = { host: '127.0.0.1', protocol: 'http:' },
+) {
+  const ctx = new Context()
+  let registered: RegisteredRoute | undefined
+  ctx.provide('webServer', {
+    ...webServer,
+    register(route: RegisteredRoute) {
+      registered = route
+      return () => { registered = undefined }
+    },
+  })
+  if (trust !== undefined) {
+    ctx.provide(trust.name, { trustedHosts: trust.trustedHosts })
+    if (trust.name === 'webStartup') {
+      // 0.2.1 provides webStartup and no webRuntime; asking for the removed
+      // service must not be what keeps the route off the server.
+      expect(ctx.get('webRuntime')).toBeUndefined()
+    }
+  }
+  await registerNowCodingSettingsRoutes(ctx, () => OPTIONS) as unknown as Promise<unknown>
+  return {
+    registered: () => registered,
+    /** Run one request through the registered handler and return its response. */
+    async call(method: string, body: unknown, headers?: Record<string, string>): Promise<Captured> {
+      const route = registered
+      if (route === undefined) throw new Error('the route was never registered')
+      const res = responseOf()
+      await route.handler(requestOf(method, body, headers), res)
+      return res
+    },
+  }
+}
+
+describe('route registration', () => {
+  it('registers /nowcoding/api from webServer alone, on a line without any trust service', async () => {
+    const mounted = await mountRoute()
+    expect(mounted.registered()?.path).toBe('/nowcoding/api')
+    expect(mounted.registered()?.kind).toBe('exact')
+  })
+
+  it('registers when the line provides webRuntime and when it provides webStartup instead', async () => {
+    expect((await mountRoute({ name: 'webRuntime', trustedHosts: [] })).registered()).toBeDefined()
+    expect((await mountRoute({ name: 'webStartup', trustedHosts: [] })).registered()).toBeDefined()
+  })
+
+  it('registers on a webServer that exposes no host or protocol, as older lines do not', async () => {
+    expect((await mountRoute(undefined, {})).registered()).toBeDefined()
+  })
+
+  it('reads the trust authorities from whichever service the line provides', async () => {
+    for (const name of ['webRuntime', 'webStartup'] as const) {
+      const mounted = await mountRoute({ name, trustedHosts: ['box.local'] })
+      const trusted = await mounted.call('POST', { method: 'models.served', payload: {} }, { host: 'box.local:51345' })
+      expect(trusted.status).toBe(200)
+      const foreign = await mounted.call('POST', { method: 'models.served', payload: {} }, { host: 'evil.example' })
+      expect(foreign.status).toBe(403)
+    }
+  })
+
+  it('accepts the listener bind address when no trust service lists it', async () => {
+    const mounted = await mountRoute(undefined, { host: '10.1.2.3', protocol: 'http:' })
+    const bound = await mounted.call('POST', { method: 'models.served', payload: {} }, { host: '10.1.2.3:61345' })
+    expect(bound.status).toBe(200)
+    const other = await mounted.call('POST', { method: 'models.served', payload: {} }, { host: '10.1.2.4:61345' })
+    expect(other.status).toBe(403)
+  })
+
+  it('answers every route failure as JSON, so a blank 405 cannot be mistaken for this route', async () => {
+    const mounted = await mountRoute()
+    const ok = await mounted.call('POST', { method: 'models.served', payload: {} })
+    expect(ok.status).toBe(200)
+    expect(JSON.parse(ok.body)).toMatchObject({ ok: true })
+    expect(String(ok.headers['content-type'])).toContain('application/json')
+
+    const wrongMethod = await mounted.call('GET', {})
+    expect(wrongMethod.status).toBe(405)
+    expect(JSON.parse(wrongMethod.body)).toMatchObject({ ok: false, error: { code: 'method-error' } })
+
+    const unknown = await mounted.call('POST', { method: 'nope', payload: {} })
+    expect(unknown.status).toBe(404)
+    expect(JSON.parse(unknown.body)).toMatchObject({ ok: false, error: { code: 'not-found' } })
   })
 })

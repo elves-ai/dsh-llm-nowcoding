@@ -20,14 +20,24 @@ import { type NowCodingPanelCredential, type NowCodingPanelLogin } from './panel
 import { type NowCodingQuotaSnapshot } from './quota.ts';
 /** Structural webServer face (mirror of `@deepseek-ai/dsh-host-webserver`). */
 export interface NowCodingWebServer {
+    /** Bound interface literal; present on lines that expose the listener address. */
+    readonly host?: string;
+    /** Listener protocol (`http:` or `https:`); present on lines that expose it. */
+    readonly protocol?: string;
     register(route: {
         kind: 'exact';
         path: string;
         handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
     }): () => void;
 }
-/** Structural webRuntime face (the bind-derived trusted host list). */
-export interface NowCodingWebRuntime {
+/**
+ * Structural face of whichever service carries the deployment's trust authorities.
+ *
+ * The 0.1.7 and 0.2.0 lines provide `webRuntime`; 0.2.1 replaced it with
+ * `webStartup`, which is the service its own `/api` gateway reads. Both carry
+ * the same `trustedHosts` array, so the route asks for whichever one exists.
+ */
+export interface NowCodingTrustService {
     trustedHosts: readonly string[];
 }
 /** The settings-seam members this route uses; the service satisfies it structurally. */
@@ -145,7 +155,15 @@ export declare class NowCodingRouteError extends Error {
  */
 export declare function dispatchNowCodingMethod(deps: NowCodingRouteDeps, method: unknown, payload: unknown): Promise<unknown>;
 /**
- * Register `/nowcoding/api` while `webServer` and `webRuntime` are mounted.
+ * Register `/nowcoding/api` while `webServer` is mounted.
+ *
+ * The route depends on `webServer` alone. Its trust authorities come from
+ * whichever service the running line provides — `webRuntime` on 0.1.7 and
+ * 0.2.0, `webStartup` on 0.2.1, where `webRuntime` was removed — so the
+ * route still registers when neither is mounted. Requiring a specific trust
+ * service by injection would silently skip registration on a line that renamed
+ * it, and the SPA fallback would then answer 405 with no body, which the
+ * browser half reports as an unparseable response.
  *
  * The optional-inject shape keeps the provider usable in deployments without a
  * web server; the settings page and the quota card simply have no route to call.
@@ -162,8 +180,14 @@ export declare function registerNowCodingSettingsRoutes(ctx: Context, options: (
 export declare function isLoopbackHostname(hostname: string): boolean;
 /**
  * Whether the browser request comes from the DSH host itself.
+ *
+ * Same policy as the `/api` gateway's fence: the Host must be loopback, the
+ * listener's own bind address, or a declared trusted authority, and any
+ * browser markers on the request must be same-origin.
  * @param headers - the incoming request headers.
- * @param trustedHosts - the runtime's bind-derived trusted host list.
+ * @param trustedHosts - the deployment's trusted authorities, as its `/api` gateway reads them.
+ * @param bindHost - the listener's bind address, accepted on any port.
+ * @param protocol - the listener's protocol, deciding the Host port that is default.
  * @returns whether the request may reach the plugin's route.
  */
-export declare function isTrustedApiRequest(headers: IncomingHttpHeaders, trustedHosts: readonly string[]): boolean;
+export declare function isTrustedApiRequest(headers: IncomingHttpHeaders, trustedHosts: readonly string[], bindHost?: string, protocol?: string): boolean;

@@ -111,6 +111,8 @@ function loginMessageOf(error: unknown): string {
       return '站方已开启 Turnstile 人机校验，插件无法完成这一步；请在控制台复制访问令牌后手动填入。'
     case 'token-unavailable':
       return '登录成功，但站方没有返回登录会话或访问令牌；请在控制台的系统访问令牌页复制一个，手动填入下方。'
+    case 'route-unavailable':
+      return 'Host 上没有 /nowcoding/api 路由：插件可能未在当前 dsh 版本上完成注册，请更新插件或重启应用。'
     case 'unreachable':
     case 'timeout':
     case 'gateway-error':
@@ -134,6 +136,8 @@ function modelListMessageOf(error: unknown): string {
   switch (code) {
     case 'unauthorized':
       return '尚未配置 API Key：请先在上方保存一个 Key，再拉取模型列表。'
+    case 'route-unavailable':
+      return 'Host 上没有 /nowcoding/api 路由：插件可能未在当前 dsh 版本上完成注册，请更新插件或重启应用。'
     case 'unreachable':
     case 'timeout':
     case 'gateway-error':

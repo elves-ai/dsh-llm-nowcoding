@@ -137,7 +137,16 @@ async function post<T>(method: string, payload?: unknown, signal?: AbortSignal):
   try {
     body = await response.json() as NowCodingEnvelope<T> | NowCodingFailure
   } catch {
-    throw new NowCodingApiError('unreachable', `NowCoding 接口返回了无法解析的响应（HTTP ${response.status}）`)
+    // A blank or non-JSON answer never came from this route: every failure it
+    // owns is a JSON envelope. The SPA fallback answers 405 for a POST it has
+    // no named route for, which is what an unregistered route looks like.
+    throw new NowCodingApiError(
+      response.status === 405 ? 'route-unavailable' : 'unreachable',
+      `NowCoding 接口返回了无法解析的响应（HTTP ${response.status}）；`
+        + (response.status === 405
+          ? 'Host 上没有这个路由，插件可能未在当前 dsh 版本上完成注册。'
+          : '请检查 Host 是否仍在运行。'),
+    )
   }
   if (!response.ok || !body.ok) {
     const failure = body as NowCodingFailure
