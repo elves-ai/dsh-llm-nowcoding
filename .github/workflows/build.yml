@@ -18,11 +18,14 @@ jobs:
     name: Check and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.release.outputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,6 +39,14 @@ jobs:
 
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Prepare next patch version without publishing
+        id: release
+        if: >-
+          github.repository == 'elves-ai/dsh-llm-nowcoding' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          github.ref == 'refs/heads/main'
+        run: node scripts/prepare-release.ts
 
       - name: Typecheck
         run: pnpm run typecheck
@@ -55,9 +66,10 @@ jobs:
           retention-days: 14
 
   sync-lib:
-    name: Commit bundles for GitHub installs
+    name: Publish versioned bundles and tag
     needs: build
     if: >-
+      needs.build.outputs.version != '' &&
       github.repository == 'elves-ai/dsh-llm-nowcoding' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main'
@@ -71,13 +83,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Skip builds superseded on main
         id: current
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: |
-          git fetch origin main
+          git fetch origin main --tags
           if [ "$(git rev-parse origin/main)" = "$SOURCE_SHA" ]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           else
@@ -96,15 +109,41 @@ jobs:
           name: plugin-lib
           path: lib/
 
-      - name: Commit changed bundles and push without rewriting history
+      - name: Publish versioned bundles and immutable tag atomically
         if: steps.current.outputs.current == 'true'
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
         run: |
-          git add -A -- lib
-          if git diff --cached --quiet; then
-            echo "Compiled bundles are already up to date."
-            exit 0
+          if [[ ! "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Invalid release version."
+            exit 1
           fi
+          # Reconstruct from the checked-out source, never trust a whole manifest from an artifact.
+          manifest="${RUNNER_TEMP:?}/nowcoding-release-package.json"
+          jq --arg version "$RELEASE_VERSION" '.version = $version' package.json > "$manifest"
+          cp -- "$manifest" package.json
+          tag="v$RELEASE_VERSION"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "Refusing to overwrite existing release tag $tag."
+            exit 1
+          fi
+          git add -A -- package.json lib
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "build: 更新插件构建产物 [skip ci]"
-          git push origin HEAD:main
+          git commit -m "build: 发布 $tag [skip ci]"
+          git tag -a "$tag" -m "Release $tag"
+          # Tags may have advanced independently while the build was running.
+          latest=""
+          while IFS= read -r existing; do
+            if [[ "$existing" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              latest="$existing"
+              break
+            fi
+          done < <(git tag --list 'v*' --sort=-version:refname)
+          if [ "$latest" != "$tag" ]; then
+            echo "A newer stable tag exists; rebuild before publishing."
+            exit 1
+          fi
+          # A concurrent main push or tag collision rejects both refs; never force or rebase.
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/$tag"
+          printf 'Published `%s` with versioned bundles.\n' "$tag" >> "$GITHUB_STEP_SUMMARY"
