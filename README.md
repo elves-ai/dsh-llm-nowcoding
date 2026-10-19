@@ -257,6 +257,14 @@ NOWCODING_API_KEY=... pnpm run test:e2e   # live smoke, self-skips without a key
 pnpm run build            # tsc declarations into lib/types, then tsdown bundles
 ```
 
+### GitHub Actions
+
+[Build plugin](.github/workflows/build.yml) runs on pull requests, pushes to `main`, and manual dispatch. It uses Node.js 22 and the pnpm version pinned in `package.json`, installs with a frozen lockfile, then runs type checking, offline unit tests and the complete build. The resulting `lib/` is available as the `plugin-lib` Actions artifact for 14 days; no gateway credentials are required. CSS module export keys are sorted during bundling to avoid bot commits caused only by random key ordering.
+
+**DSH does not download Actions artifacts when installing from GitHub.** After a successful build on `main`, a separate write-enabled job commits changed `lib/` files back to `main` using `GITHUB_TOKEN`. Pull requests, forks and manual runs on other branches never write back. Superseded builds are skipped, pushes never force-update history, and the bot commit does not trigger another build. Wait for the complete workflow, including bundle synchronization, before installing or updating from GitHub; installing an earlier commit still uses that commit's bundled files.
+
+The repository must allow GitHub Actions write access to contents, and branch protection or rulesets must permit the bot's push to `main`. If those policies reject it, the build artifact remains downloadable but bundle synchronization fails; commit the locally rebuilt `lib/` through the normal review process instead. No personal access token or `prepare` install hook is needed.
+
 `src/` is split so each concern has one home:
 
 | File | Responsibility |

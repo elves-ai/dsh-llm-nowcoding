@@ -104,7 +104,8 @@ function makeCssPlugin(pluginId: string): BuildPlugin {
         minify: true,
       })
       const classMap: Record<string, string> = {}
-      for (const [local, exp] of Object.entries(cssExports ?? {})) classMap[local] = exp.name
+      // lightningcss does not guarantee export order; keep generated bundles stable across runs.
+      for (const local of Object.keys(cssExports ?? {}).sort()) classMap[local] = cssExports![local]!.name
       return injectTag(pluginId, fileId, code.toString()) + '\nexport default ' + JSON.stringify(classMap) + ';'
     },
   }

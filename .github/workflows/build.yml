@@ -1,0 +1,110 @@
+name: Build plugin
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Check and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up pnpm from packageManager
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Run unit tests
+        run: pnpm test
+
+      - name: Build host, client and declarations
+        run: pnpm run build
+
+      - name: Upload compiled plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-lib
+          path: lib/
+          if-no-files-found: error
+          retention-days: 14
+
+  sync-lib:
+    name: Commit bundles for GitHub installs
+    needs: build
+    if: >-
+      github.repository == 'elves-ai/dsh-llm-nowcoding' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # This write-enabled job never installs dependencies or runs repository code.
+      - name: Check out the exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Skip builds superseded on main
+        id: current
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse origin/main)" = "$SOURCE_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "A newer main revision exists; skipping bundle synchronization."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Remove previously tracked bundles
+        if: steps.current.outputs.current == 'true'
+        run: git rm -r --ignore-unmatch -- lib
+
+      - name: Download this run's compiled plugin
+        if: steps.current.outputs.current == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: plugin-lib
+          path: lib/
+
+      - name: Commit changed bundles and push without rewriting history
+        if: steps.current.outputs.current == 'true'
+        run: |
+          git add -A -- lib
+          if git diff --cached --quiet; then
+            echo "Compiled bundles are already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build: 更新插件构建产物 [skip ci]"
+          git push origin HEAD:main

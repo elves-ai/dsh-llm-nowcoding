@@ -257,6 +257,14 @@ NOWCODING_API_KEY=... pnpm run test:e2e   # 真实接口冒烟，无 Key 自动�
 pnpm run build            # tsc 产出 lib/types，再由 tsdown 打包
 ```
 
+### GitHub Actions
+
+[Build plugin](.github/workflows/build.yml) 在 PR、推送到 `main` 以及手动运行时触发。使用 Node.js 22 和 `package.json` 固定的 pnpm 版本，按锁文件安装依赖，再依次执行类型检查、离线单元测试和完整构建。`lib/` 会作为名为 `plugin-lib` 的 Actions 附件保留 14 天，不需要网关账号或 API Key。打包时会固定 CSS 模块导出键的顺序，避免仅因键顺序随机变化而产生机器人提交。
+
+**DSH 从 GitHub 安装时不会下载 Actions 附件。** 所以 `main` 构建成功后，另一个有写权限的任务会通过 `GITHUB_TOKEN` 将有变化的 `lib/` 自动提交回 `main`。PR、fork 仓库和其他分支的手动构建不会回写；已被新提交取代的构建会跳过回写，不强制推送，机器人提交也不会重复触发构建。请等完整工作流（包括产物同步）成功后再从 GitHub 安装或更新；指定旧 commit 安装时，仍然使用那个 commit 自带的产物。
+
+仓库策略必须允许 Actions 写入内容，分支保护或 ruleset 也需允许机器人推送到 `main`。若策略拒绝推送，构建附件仍可下载，但产物同步任务会失败；此时按正常评审流程提交本地重新构建的 `lib/` 即可。不需要个人访问令牌，也不要添加安装时构建的 `prepare` 钩子。
+
 `src/` 按职责拆分，每个关注点只有一个家：
 
 | 文件 | 职责 |
