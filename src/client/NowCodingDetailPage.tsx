@@ -688,7 +688,7 @@ export function NowCodingDetailPage(): ReactElement | null {
         <div className={css.row}>
           <div className={css.rowText}>
             <span className={css.title}>余量</span>
-            <span className={css.desc}>当前 API Key 的额度余额，读取自站方的计费接口。</span>
+            <span className={css.desc}>优先合计当前有效订阅的额度；无有效订阅时读取 API Key 的按量余额。</span>
           </div>
           <div className={css.control}>
             <button type="button" className={css.button} disabled={quotaLoading} onClick={() => { void refreshQuota() }}>
@@ -700,7 +700,7 @@ export function NowCodingDetailPage(): ReactElement | null {
           <div className={css.quotaBody}>
             {snapshot !== null && (
               <div className={css.quotaGrid}>
-                <span className={css.quotaLabel}>剩余</span>
+                <span className={css.quotaLabel}>{(snapshot.subscriptionCount ?? 1) > 1 ? `${snapshot.subscriptionCount} 份订阅剩余合计` : '剩余'}</span>
                 <span className={css.quotaValue}>{snapshot.unlimited ? '不限额度' : formatMoney(snapshot.remaining, quota?.currency ?? '')}</span>
                 <span className={css.quotaLabel}>总额度</span>
                 <span className={css.quotaValue}>{snapshot.unlimited ? '不限额度' : formatMoney(snapshot.total, quota?.currency ?? '')}</span>
@@ -708,7 +708,7 @@ export function NowCodingDetailPage(): ReactElement | null {
                 <span className={css.quotaValue}>{snapshot.unlimited ? '—' : formatMoney(snapshot.used, quota?.currency ?? '')}</span>
                 {snapshot.accessUntil > 0 && (
                   <>
-                    <span className={css.quotaLabel}>额度到期</span>
+                    <span className={css.quotaLabel}>{(snapshot.subscriptionCount ?? 1) > 1 ? '最近额度到期' : '额度到期'}</span>
                     <span className={css.quotaValue}>{formatTimestamp(snapshot.accessUntil)}</span>
                   </>
                 )}

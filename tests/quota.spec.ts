@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
 import {
   NowCodingQuotaError,
   createQuotaReader,
@@ -6,6 +7,10 @@ import {
   normalizeSubscription,
   quotaUnitOf,
 } from '../src/quota.ts'
+
+// Keep subscription validity checks independent of the wall clock.
+beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(1_000) })
+afterEach(() => { vi.restoreAllMocks() })
 
 const subscription = {
   object: 'billing_subscription',
@@ -113,13 +118,69 @@ describe('normalizeSubscription', () => {
     expect(snapshot?.accessUntil).toBe(1_792_134_221_000)
   })
 
-  it('falls back to the full list when the active list is empty', () => {
+  it('does not reuse an expired plan when the active list is empty', () => {
     const onlyAll = {
       data: { subscriptions: [], all_subscriptions: [
         { subscription: { amount_total: 1_000, amount_used: 1_000, status: 'expired' } },
       ] },
     }
-    expect(normalizeSubscription(onlyAll, 500_000, 1)?.total).toBe(0.002)
+    expect(normalizeSubscription(onlyAll, 500_000, 1)).toBeUndefined()
+  })
+
+  it('sums all active allowances and consumption without counting the history list twice', () => {
+    const first = panel.data.subscriptions[0]!
+    const second = {
+      ...first,
+      subscription: { ...first.subscription, id: 4000, amount_total: 25_000_000, amount_used: 5_000_000 },
+    }
+    const payload = { data: { subscriptions: [first, second, first], all_subscriptions: [first, second] } }
+    expect(normalizeSubscription(payload, 500_000, 1_000)).toMatchObject({
+      source: 'subscription', total: 150, used: 12.034466, remaining: 137.965534,
+      subscriptionCount: 2, resetPeriod: 'daily', planTitle: first.plan_title,
+    })
+    expect(normalizeSubscription({ data: { subscriptions: [second, first] } }, 500_000, 1_000))
+      .toEqual(normalizeSubscription(payload, 500_000, 1_000))
+  })
+
+  it('finds the renewed plan after expired or malformed rows, including in the full list', () => {
+    const renewed = panel.data.subscriptions[0]!
+    const rows = [null, {}, { subscription: {} },
+      { subscription: { status: 'expired', amount_total: 999_000_000 } }, renewed]
+    for (const subscriptions of [rows, [...rows].reverse()]) {
+      expect(normalizeSubscription({ data: { subscriptions } }, 500_000, 1_000)?.total).toBe(100)
+    }
+    for (const subscriptions of [[], [null, {}]]) {
+      expect(normalizeSubscription({ data: { subscriptions, all_subscriptions: rows } }, 500_000, 1_000)?.total).toBe(100)
+    }
+  })
+
+  it('excludes cancelled, expired and not-yet-started plans even when listed as active', () => {
+    const entry = panel.data.subscriptions[0]!
+    const rows = [
+      { subscription: { ...entry.subscription, id: 1, status: 'cancelled' } },
+      { subscription: { ...entry.subscription, id: 2, end_time: 1 } },
+      { subscription: { ...entry.subscription, id: 3, start_time: 2 } },
+      { subscription: { ...entry.subscription, id: 4, status: 'pending' } },
+      entry,
+    ]
+    expect(normalizeSubscription({ data: { subscriptions: rows } }, 500_000, 1_000))
+      .toMatchObject({ total: 100, subscriptionCount: 1 })
+  })
+
+  it('floors each plan before adding remaining balances and reports the nearest reset and expiry', () => {
+    const rows = [
+      { subscription: { status: 'active', amount_total: 100, amount_used: 120, end_time: 10, next_reset_time: 6 }, plan_title: 'Daily', plan_quota_reset_period: 'daily' },
+      { subscription: { status: 'active', amount_total: 200, amount_used: 20, end_time: 20, next_reset_time: 5 }, plan_title: 'Monthly', plan_quota_reset_period: 'monthly' },
+      { subscription: { status: 'active', amount_total: 10, end_time: 0, next_reset_time: 0 } },
+    ]
+    const snapshot = normalizeSubscription({ data: { subscriptions: rows } }, 10, 1_000)
+    expect(snapshot).toMatchObject({ total: 31, used: 14, remaining: 19, accessUntil: 10_000, resetAt: 5_000, subscriptionCount: 3, planTitle: 'Daily + Monthly' })
+    expect(snapshot?.resetPeriod).toBeUndefined()
+  })
+
+  it('reports no snapshot for a business failure or an expired-only history', () => {
+    expect(normalizeSubscription({ ...panel, success: false }, 500_000, 1_000)).toBeUndefined()
+    expect(normalizeSubscription({ data: { all_subscriptions: [panel.data.all_subscriptions[1]] } }, 500_000, 1_000)).toBeUndefined()
   })
 
   it('reports no snapshot when the document carries no usable plan', () => {
@@ -286,6 +347,94 @@ describe('createQuotaReader', () => {
       )) as typeof fetch,
     })
     await expect(reader.read()).rejects.toMatchObject({ code: 'unauthorized' })
+  })
+
+  it('reads renewed subscriptions without a model key and re-reads after another purchase', async () => {
+    let payload: unknown = { data: { subscriptions: [null, {}, ...panel.data.subscriptions] } }
+    const urls: string[] = []
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1', apiKey: '', panelSession: 'session=test', panelUserId: '1',
+      fetchImpl: (async (input: RequestInfo | URL) => {
+        const url = String(input)
+        urls.push(url)
+        return url.includes('subscription/self') ? Response.json(payload) : okFetch(url)
+      }) as typeof fetch,
+    })
+    expect(await reader.read()).toMatchObject({ total: 100, subscriptionCount: 1 })
+    const first = panel.data.subscriptions[0]!
+    payload = { data: { subscriptions: [first, { ...first, subscription: { ...first.subscription, id: 4000 } }] } }
+    expect(await reader.read()).toMatchObject({ total: 200, subscriptionCount: 2 })
+    expect(urls.every(url => !url.includes('/dashboard/billing/'))).toBe(true)
+  })
+
+  it('uses the wallet when the console history contains only expired plans', async () => {
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1', apiKey: 'sk-test', panelToken: 'panel-test',
+      fetchImpl: (async (input: RequestInfo | URL) => String(input).includes('subscription/self')
+        ? Response.json({ data: { all_subscriptions: [panel.data.all_subscriptions[1]] } })
+        : okFetch(String(input))) as typeof fetch,
+    })
+    expect((await reader.read()).source).toBe('billing')
+  })
+
+  it.each(['http', 'network', 'invalid-json', 'timeout'])('keeps a readable subscription when the public status probe fails (%s)', async failure => {
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1', apiKey: '', panelToken: 'panel-test', timeoutMs: 5,
+      fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (!String(input).includes('/api/status')) return okFetch(String(input))
+        if (failure === 'network') throw new Error('offline')
+        if (failure === 'http') return new Response('unavailable', { status: 502 })
+        if (failure === 'invalid-json') return new Response('not json')
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => { reject(init.signal?.reason) }, { once: true })
+        })
+      }) as typeof fetch,
+    })
+    expect(await reader.read()).toMatchObject({ source: 'subscription', total: 100, quotaPerUnit: 500_000 })
+  })
+
+  it('classifies a malformed console document instead of silently falling back to the wallet', async () => {
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1', apiKey: 'sk-test', panelToken: 'panel-test',
+      fetchImpl: (async () => Response.json({ success: true, data: {} })) as typeof fetch,
+    })
+    await expect(reader.read()).rejects.toMatchObject({ code: 'unprocessable' })
+  })
+
+  it('keeps the timeout active while consuming a slow response body', async () => {
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1', apiKey: 'sk-test', timeoutMs: 5,
+      fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => new Response(new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () => { controller.error(init.signal?.reason) }, { once: true })
+        },
+      }))) as typeof fetch,
+    })
+    await expect(reader.read()).rejects.toMatchObject({ code: 'timeout' })
+  })
+
+  it('honors caller cancellation while consuming a subscription body without wallet fallback', async () => {
+    const controller = new AbortController()
+    const reason = new Error('caller cancelled')
+    let reading!: () => void
+    const started = new Promise<void>(resolve => { reading = resolve })
+    const urls: string[] = []
+    const reader = createQuotaReader({
+      baseURL: 'https://nowcoding.ai/v1', apiKey: 'sk-test', panelToken: 'panel-test',
+      fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        urls.push(String(input))
+        if (String(input).includes('/api/status')) return okFetch(String(input))
+        return new Response(new ReadableStream({ start(stream) {
+          init?.signal?.addEventListener('abort', () => { stream.error(init.signal?.reason) }, { once: true })
+          reading()
+        } }))
+      }) as typeof fetch,
+    })
+    const result = reader.read(controller.signal)
+    await started
+    controller.abort(reason)
+    await expect(result).rejects.toBe(reason)
+    expect(urls.every(url => !url.includes('/dashboard/billing/'))).toBe(true)
   })
 
   it('sends the model key as a bearer token on the relay chain', async () => {

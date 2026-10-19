@@ -18,22 +18,24 @@ export interface NowCodingQuotaSnapshotView {
   total: number
   /** Consumed amount in the gateway's display currency. */
   used: number
-  /** `total - used`, floored at zero. */
+  /** Remaining allowance, floored per subscription before summing (or once for the wallet). */
   remaining: number
   /** True for an unmetered key, where the three amounts are the gateway's sentinel. */
   unlimited: boolean
   /** Which document this balance came from: a monthly plan or the wallet. */
   source: 'subscription' | 'billing'
-  /** Epoch milliseconds when the grant lapses; 0 means it does not. */
+  /** Earliest grant expiry in epoch milliseconds; 0 when none expires. */
   accessUntil: number
-  /** Epoch milliseconds of the next scheduled reset; 0 when the source schedules none. */
+  /** Earliest scheduled reset in epoch milliseconds; 0 when none is scheduled. */
   resetAt: number
   /** Epoch milliseconds when the Host read the balance. */
   fetchedAt: number
   /** Plan title, present for a subscription. */
   planTitle?: string
-  /** Reset cadence as the gateway names it, present for a subscription. */
+  /** Shared reset cadence; absent for mixed subscription cadences and the wallet. */
   resetPeriod?: string
+  /** Number of active subscriptions included; absent for the wallet. */
+  subscriptionCount?: number
 }
 
 /** Answer of `quota.get`. */

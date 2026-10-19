@@ -79,20 +79,22 @@ export interface NowCodingQuotaSnapshot {
   total: number
   /** Consumed allowance for the current period, in display units. */
   used: number
-  /** `total - used`, floored at zero. */
+  /** Remaining allowance, floored per subscription before summing (or once for the wallet). */
   remaining: number
   /** Whether the credential is unmetered, in which case the amounts are the gateway's sentinel. */
   unlimited: boolean
-  /** Epoch milliseconds when the grant lapses; 0 means it does not. */
+  /** Earliest grant expiry in epoch milliseconds; 0 when none expires. */
   accessUntil: number
-  /** Epoch milliseconds of the next scheduled reset; 0 when the source schedules none. */
+  /** Earliest scheduled reset in epoch milliseconds; 0 when none is scheduled. */
   resetAt: number
   /** Epoch milliseconds when this snapshot was read. */
   fetchedAt: number
   /** Plan title, when the snapshot came from a subscription. */
   planTitle?: string
-  /** Reset cadence as the gateway names it (`daily`, …); absent for the wallet source. */
+  /** Shared reset cadence (`daily`, …); absent for mixed cadences and the wallet. */
   resetPeriod?: string
+  /** Number of active subscriptions included; absent for the wallet. */
+  subscriptionCount?: number
   /** Raw units per displayed unit, so a wrong divisor is visible rather than silent. */
   quotaPerUnit: number
 }
@@ -162,24 +164,57 @@ export function quotaUnitOf(status: unknown): number {
   return unit !== undefined && unit > 0 ? unit : NOWCODING_FALLBACK_QUOTA_PER_UNIT
 }
 
-/** One subscription entry as both documents spell it. */
-interface SubscriptionEntry extends Record<string, unknown> {
-  status?: unknown
+/** A readable, currently active subscription and its display metadata. */
+interface SubscriptionEntry {
+  total: number
+  used: number
+  end: number
+  reset: number
+  title?: string
+  period?: string
 }
 
-/** Every candidate subscription in a console document, active ones first. */
-function subscriptionCandidates(payload: unknown): readonly SubscriptionEntry[] {
-  if (!isRecord(payload)) return []
+/** Read active entries before choosing a list, so old or malformed rows cannot hide a renewal. */
+function subscriptionCandidates(payload: unknown, fetchedAt: number): readonly SubscriptionEntry[] {
+  if (!isRecord(payload) || payload['success'] === false) return []
   const data = isRecord(payload['data']) ? payload['data'] : undefined
   if (data === undefined) return []
-  const active = Array.isArray(data['subscriptions']) ? data['subscriptions'] as SubscriptionEntry[] : []
-  const all = Array.isArray(data['all_subscriptions']) ? data['all_subscriptions'] as SubscriptionEntry[] : []
-  const usable = active.length > 0 ? active : all
-  return usable.filter(entry => isRecord(entry))
+  const readEntries = (value: unknown): SubscriptionEntry[] => {
+    if (!Array.isArray(value)) return []
+    const entries: SubscriptionEntry[] = []
+    const seen = new Set<number | string>()
+    for (const entry of value) {
+      if (!isRecord(entry) || !isRecord(entry['subscription'])) continue
+      const subscription = entry['subscription']
+      if (subscription['status'] !== 'active') continue
+      const end = firstNumber(subscription, ['end_time']) ?? 0
+      const start = firstNumber(subscription, ['start_time']) ?? 0
+      if ((end > 0 && end * 1_000 <= fetchedAt) || start * 1_000 > fetchedAt) continue
+      const total = firstNumber(subscription, ['amount_total'])
+      const used = firstNumber(subscription, ['amount_used']) ?? 0
+      if (total === undefined || total < 0 || used < 0) continue
+      const id = subscription['id']
+      if (typeof id === 'number' || typeof id === 'string') {
+        if (seen.has(id)) continue
+        seen.add(id)
+      }
+      entries.push({
+        total, used, end,
+        reset: firstNumber(subscription, ['next_reset_time']) ?? 0,
+        ...stringMember(entry, 'plan_title') === undefined ? {} : { title: stringMember(entry, 'plan_title') as string },
+        ...stringMember(entry, 'plan_quota_reset_period') === undefined
+          ? {} : { period: stringMember(entry, 'plan_quota_reset_period') as string },
+      })
+    }
+    return entries
+  }
+  const active = readEntries(data['subscriptions'])
+  // The two lists repeat the same subscriptions; never add them together.
+  return active.length > 0 ? active : readEntries(data['all_subscriptions'])
 }
 
 /**
- * Project the console subscription document into one balance.
+ * Sum currently active console subscriptions into one balance without counting history twice.
  *
  * Exported for tests and for callers that already hold the document: the
  * normalization carries the field semantics, the request does not.
@@ -194,32 +229,28 @@ export function normalizeSubscription(
   quotaPerUnit: number,
   fetchedAt: number,
 ): NowCodingQuotaSnapshot | undefined {
-  const entry = subscriptionCandidates(payload).find(candidate => candidate['status'] === 'active')
-    ?? subscriptionCandidates(payload)[0]
-  if (entry === undefined) return undefined
-  const subscription = isRecord(entry['subscription']) ? entry['subscription'] : undefined
-  if (subscription === undefined) return undefined
-  const totalUnits = firstNumber(subscription, ['amount_total'])
-  if (totalUnits === undefined) return undefined
-  const usedUnits = firstNumber(subscription, ['amount_used']) ?? 0
-  const unit = quotaPerUnit > 0 ? quotaPerUnit : NOWCODING_FALLBACK_QUOTA_PER_UNIT
-  const total = totalUnits / unit
-  const used = usedUnits / unit
-  const endSeconds = firstNumber(subscription, ['end_time']) ?? 0
-  const resetSeconds = firstNumber(subscription, ['next_reset_time']) ?? 0
+  const entries = subscriptionCandidates(payload, fetchedAt)
+  if (entries.length === 0) return undefined
+  const unit = Number.isFinite(quotaPerUnit) && quotaPerUnit > 0 ? quotaPerUnit : NOWCODING_FALLBACK_QUOTA_PER_UNIT
+  const total = entries.reduce((sum, entry) => sum + entry.total, 0) / unit
+  const used = entries.reduce((sum, entry) => sum + entry.used, 0) / unit
+  // An overdrawn plan cannot consume another plan's remaining allowance.
+  const remaining = entries.reduce((sum, entry) => sum + Math.max(0, entry.total - entry.used), 0) / unit
+  const earliest = (values: number[]): number => values.reduce((min, value) => value > 0 && (min === 0 || value < min) ? value : min, 0) * 1_000
+  const titles = [...new Set(entries.flatMap(entry => entry.title === undefined ? [] : [entry.title]))]
+  const period = entries[0]?.period
   return {
     source: 'subscription',
     total,
     used,
-    remaining: Math.max(0, total - used),
+    remaining,
     unlimited: false,
-    accessUntil: endSeconds > 0 ? endSeconds * 1_000 : 0,
-    resetAt: resetSeconds > 0 ? resetSeconds * 1_000 : 0,
+    accessUntil: earliest(entries.map(entry => entry.end)),
+    resetAt: earliest(entries.map(entry => entry.reset)),
     fetchedAt,
-    ...stringMember(entry, 'plan_title') === undefined ? {} : { planTitle: stringMember(entry, 'plan_title') as string },
-    ...stringMember(entry, 'plan_quota_reset_period') === undefined
-      ? {}
-      : { resetPeriod: stringMember(entry, 'plan_quota_reset_period') as string },
+    subscriptionCount: entries.length,
+    ...titles.length === 0 ? {} : { planTitle: titles.join(' + ') },
+    ...period === undefined || !entries.every(entry => entry.period === period) ? {} : { resetPeriod: period },
     quotaPerUnit: unit,
   }
 }
@@ -281,18 +312,36 @@ export function createQuotaReader(options: NowCodingQuotaReaderOptions): NowCodi
       else signal.addEventListener('abort', onAbort, { once: true })
     }
     const timeout = setTimeout(() => timer.abort(new Error('quota read timed out')), timeoutMs)
-    let response: Response
     try {
-      response = await fetchImpl(url, {
+      timer.signal.throwIfAborted()
+      const response = await fetchImpl(url, {
         method: 'GET',
         headers: { accept: 'application/json', ...attributionHeaders(), ...headers },
         signal: timer.signal,
       })
+      if (response.status === 401 || response.status === 403) {
+        throw new NowCodingQuotaError('unauthorized', `the gateway rejected the credential (HTTP ${response.status})`)
+      }
+      if (!response.ok) {
+        throw new NowCodingQuotaError('gateway-error', `quota read from ${url} returned HTTP ${response.status}`)
+      }
+      try {
+        const payload: unknown = await response.json()
+        timer.signal.throwIfAborted()
+        return payload
+      } catch (error) {
+        if (timer.signal.aborted) throw error
+        throw new NowCodingQuotaError(
+          'unprocessable',
+          `quota read from ${url} returned a body that is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
     } catch (error) {
       if (signal?.aborted === true) throw error
       if (timer.signal.aborted) {
         throw new NowCodingQuotaError('timeout', `quota read from ${url} exceeded ${timeoutMs}ms`)
       }
+      if (error instanceof NowCodingQuotaError) throw error
       throw new NowCodingQuotaError(
         'unreachable',
         `quota read from ${url} failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -300,20 +349,6 @@ export function createQuotaReader(options: NowCodingQuotaReaderOptions): NowCodi
     } finally {
       clearTimeout(timeout)
       signal?.removeEventListener('abort', onAbort)
-    }
-    if (response.status === 401 || response.status === 403) {
-      throw new NowCodingQuotaError('unauthorized', `the gateway rejected the credential (HTTP ${response.status})`)
-    }
-    if (!response.ok) {
-      throw new NowCodingQuotaError('gateway-error', `quota read from ${url} returned HTTP ${response.status}`)
-    }
-    try {
-      return await response.json() as unknown
-    } catch (error) {
-      throw new NowCodingQuotaError(
-        'unprocessable',
-        `quota read from ${url} returned a body that is not JSON: ${error instanceof Error ? error.message : String(error)}`,
-      )
     }
   }
 
@@ -343,7 +378,11 @@ export function createQuotaReader(options: NowCodingQuotaReaderOptions): NowCodi
   ): Promise<NowCodingQuotaSnapshot | undefined> {
     const [payload, status] = await Promise.all([
       get(origin + NOWCODING_SUBSCRIPTION_PATH, headers, signal),
-      get(origin + NOWCODING_STATUS_PATH, {}, signal),
+      get(origin + NOWCODING_STATUS_PATH, {}, signal).catch((error: unknown) => {
+        // Only the public divisor probe may use the documented fallback.
+        if (signal?.aborted === true || !(error instanceof NowCodingQuotaError)) throw error
+        return undefined
+      }),
     ])
     // The console chain answers HTTP 200 with success:false for a rejected
     // token, so a non-throwing body still has to be checked.
@@ -352,6 +391,10 @@ export function createQuotaReader(options: NowCodingQuotaReaderOptions): NowCodi
         'unauthorized',
         `the gateway rejected the dashboard credential: ${stringMember(payload, 'message') ?? 'no reason given'}`,
       )
+    }
+    if (!isRecord(payload) || !isRecord(payload['data'])
+      || (!Array.isArray(payload['data']['subscriptions']) && !Array.isArray(payload['data']['all_subscriptions']))) {
+      throw new NowCodingQuotaError('unprocessable', 'the gateway subscription document carries no subscription list')
     }
     return normalizeSubscription(payload, quotaUnitOf(status), now())
   }

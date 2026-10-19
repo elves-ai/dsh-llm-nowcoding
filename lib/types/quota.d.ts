@@ -60,20 +60,22 @@ export interface NowCodingQuotaSnapshot {
     total: number;
     /** Consumed allowance for the current period, in display units. */
     used: number;
-    /** `total - used`, floored at zero. */
+    /** Remaining allowance, floored per subscription before summing (or once for the wallet). */
     remaining: number;
     /** Whether the credential is unmetered, in which case the amounts are the gateway's sentinel. */
     unlimited: boolean;
-    /** Epoch milliseconds when the grant lapses; 0 means it does not. */
+    /** Earliest grant expiry in epoch milliseconds; 0 when none expires. */
     accessUntil: number;
-    /** Epoch milliseconds of the next scheduled reset; 0 when the source schedules none. */
+    /** Earliest scheduled reset in epoch milliseconds; 0 when none is scheduled. */
     resetAt: number;
     /** Epoch milliseconds when this snapshot was read. */
     fetchedAt: number;
     /** Plan title, when the snapshot came from a subscription. */
     planTitle?: string;
-    /** Reset cadence as the gateway names it (`daily`, …); absent for the wallet source. */
+    /** Shared reset cadence (`daily`, …); absent for mixed cadences and the wallet. */
     resetPeriod?: string;
+    /** Number of active subscriptions included; absent for the wallet. */
+    subscriptionCount?: number;
     /** Raw units per displayed unit, so a wrong divisor is visible rather than silent. */
     quotaPerUnit: number;
 }
@@ -115,7 +117,7 @@ export declare const NOWCODING_DEFAULT_QUOTA_TIMEOUT_MS = 15000;
  */
 export declare function quotaUnitOf(status: unknown): number;
 /**
- * Project the console subscription document into one balance.
+ * Sum currently active console subscriptions into one balance without counting history twice.
  *
  * Exported for tests and for callers that already hold the document: the
  * normalization carries the field semantics, the request does not.

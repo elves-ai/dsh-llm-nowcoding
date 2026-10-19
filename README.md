@@ -168,6 +168,8 @@ GET {origin}/api/status              public; supplies quota_per_unit
 
 The console chain **rejects the `sk-` model key**, and it says so with HTTP 200 and `success: false` rather than a 401 — a wrong credential reads as an empty plan unless the body is checked. The plugin therefore needs a console credential: the dashboard user id, plus either an access token from the console's system-access-token page or the session cookie an account sign-in answers with. Both credentials need the user id beside them; when both are configured the token is tried first and the session takes over when the token is refused. With any working pair, the card shows the plan's allowance and its consumption against it, matching the console.
 
+The subscription balance sums the total, used and remaining allowance of every currently active plan, including plans bought again while another is still valid. It prefers readable active entries in `subscriptions`, falling back to active entries in `all_subscriptions` only when needed; the two lists are never added together, and repeated subscription ids count once. Expired, cancelled and not-yet-started plans are excluded. Each plan's remaining allowance is floored at zero before summing, so an overdrawn plan cannot reduce another plan's balance. Multiple plans are labelled as an aggregate with their count; reset and expiry times indicate the nearest event, not a simultaneous reset or expiry of all plans. The sum is an account overview: each plan's model/group restrictions and reset cadence still apply.
+
 ### Signing in instead of copying the token
 
 The detail page obtains that credential for you. Its sign-in block takes the NowCoding account name and password, performs the console login, and writes the sign-in session and the user id into the plugin's configuration — the plan balance works from that alone. When the account holds an access token it is read back as well, as the credential the chain tries first because it does not expire.
@@ -189,7 +191,7 @@ Three things worth knowing before you rely on it:
 - **2FA is supported.** An account with an authenticator app gets a second step in the same block, and the half-finished session lives in the Host for five minutes.
 - **Signing in is not a model key.** The console credential reads a plan's allowance; chat requests still need an `sk-` key from the console's token page.
 
-Amounts in that document are **raw quota units**, not currency: a displayed amount is `raw / quota_per_unit`, and `quota_per_unit` (500000 on this deployment) comes from the public status document. The reader divides by the value the gateway reports and records the divisor in every snapshot, so a wrong one is visible rather than silent.
+Amounts in that document are **raw quota units**, not currency: a displayed amount is `raw / quota_per_unit`, and `quota_per_unit` (500000 on this deployment) comes from the public status document. The reader divides by the value the gateway reports and records the divisor in every snapshot, so a wrong one is visible rather than silent. If only the public status probe fails, it uses the deployment fallback of 500000 and records that divisor; a failed subscription request still reports an error, never a cached balance. Request timeouts and caller cancellation cover response-body consumption as well as response headers.
 
 **A pay-as-you-go wallet** needs only the model key, and is read from the OpenAI-compatible billing pair behind the same authentication as `/v1/models`:
 
@@ -205,7 +207,7 @@ Two properties of that pair are easy to get wrong, and the plugin handles them s
 
 A key with no quota limit reports the gateway's unlimited sentinel instead of a grant; the card shows "unlimited" rather than a balance computed against it.
 
-The card sits at the sidebar foot beside Settings (`sidebar.footer.action`), shows remaining over total with a progress bar, turns to a warning colour below 20%, refreshes on mount and every `quotaRefreshSeconds` (default 300, minimum 30), and draws nothing at all when its settings switch is off. Before a key is configured it says so instead of showing an error, and a failed read offers a retry rather than a stale number. The detail page shows the same figures with a manual refresh.
+The card sits at the sidebar foot beside Settings (`sidebar.footer.action`), shows remaining over total with a progress bar, turns to a warning colour below 20%, refreshes on mount and every `quotaRefreshSeconds` (default 300, minimum 30), and draws nothing at all when its settings switch is off. Before a key is configured it says so instead of showing an error, and a failed read offers a retry rather than a stale number. The detail page shows the same figures with a manual refresh. Concurrent sidebar refreshes only apply the newest request, so an older failure cannot overwrite a successful refresh after sign-in.
 
 The reader is a host-side client (`src/quota.ts`) with an injected transport, so it is unit-tested without a network and can be reused outside the card. Failures carry a stable code — `unreachable`, `unauthorized`, `gateway-error`, `unprocessable`, `timeout` — and the card reports which one it hit rather than showing a stale number as if it were current.
 

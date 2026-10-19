@@ -9,7 +9,7 @@
  * @module @elves-ai/dsh-llm-nowcoding/client/NowCodingQuotaCard
  */
 
-import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { NowCodingApiError, getQuota, onNowCodingSettingsCommitted, type NowCodingQuotaSnapshotView, type NowCodingQuotaView } from './api.ts'
 import styles from './NowCodingQuotaCard.module.css'
 
@@ -41,7 +41,7 @@ function isLow(snapshot: NowCodingQuotaSnapshotView): boolean {
 function summaryOf(snapshot: NowCodingQuotaSnapshotView, currency: string): string {
   if (snapshot.unlimited) return '不限额度'
   return snapshot.source === 'subscription'
-    ? `订阅剩余 ${formatAmount(snapshot.remaining, currency)}`
+    ? `${(snapshot.subscriptionCount ?? 1) > 1 ? '订阅合计剩余' : '订阅剩余'} ${formatAmount(snapshot.remaining, currency)}`
     : `剩余 ${formatAmount(snapshot.remaining, currency)}`
 }
 
@@ -67,6 +67,10 @@ function formatReset(epochMs: number): string {
 /** The second line: which period the balance covers and when it resets. */
 function detailOf(snapshot: NowCodingQuotaSnapshotView): string | undefined {
   if (snapshot.source !== 'subscription') return undefined
+  if ((snapshot.subscriptionCount ?? 1) > 1) {
+    const label = `${snapshot.subscriptionCount} 份订阅合计`
+    return snapshot.resetAt > 0 ? `${label} · 最近 ${formatReset(snapshot.resetAt)} 重置` : label
+  }
   const period = periodLabel(snapshot.resetPeriod)
   return snapshot.resetAt > 0 ? `${period} · ${formatReset(snapshot.resetAt)} 重置` : period
 }
@@ -86,14 +90,16 @@ export function NowCodingQuotaCard(): ReactElement | null {
   const [state, setState] = useState<CardState>({ kind: 'loading' })
   const [refreshSeconds, setRefreshSeconds] = useState(DEFAULT_REFRESH_SECONDS)
 
+  const latestRead = useRef(0)
   const load = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    const read = ++latestRead.current
     try {
       const view = await getQuota(signal)
-      if (signal?.aborted === true) return
+      if (signal?.aborted === true || read !== latestRead.current) return
       setRefreshSeconds(view.refreshSeconds > 0 ? view.refreshSeconds : DEFAULT_REFRESH_SECONDS)
       setState({ kind: 'ready', view })
     } catch (error) {
-      if (signal?.aborted === true) return
+      if (signal?.aborted === true || read !== latestRead.current) return
       setState({
         kind: 'failed',
         message: error instanceof NowCodingApiError ? error.message : String(error),
